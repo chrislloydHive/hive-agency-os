@@ -5,7 +5,7 @@
 // Requires author identity before approval or commenting.
 // Assets can be clicked to open a lightbox for expanded preview.
 
-import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import AssetLightbox from './AssetLightbox';
 import { useAuthorIdentity } from './AuthorIdentityContext';
 import {
@@ -14,11 +14,8 @@ import {
   reviewAssetIsImage,
   reviewAssetIsVideo,
 } from '@/lib/review/reviewMediaDisplay';
-import {
-  muxGridPosterConfig,
-  muxPlaybackReadyForThumbnail,
-  muxPosterFallbackUrls,
-} from '@/lib/review/muxThumbnail';
+import { muxPlaybackReadyForThumbnail } from '@/lib/review/muxThumbnail';
+import GridMuxPreview from './GridMuxPreview';
 import { getSectionCounts, isAssetNew } from './reviewAssetUtils';
 import type { ReviewState } from './ReviewPortalClient';
 
@@ -243,107 +240,6 @@ export function VideoWithThumbnail({
       onError={() => setLoadError(true)}
     />
   );
-}
-
-/** Mux poster with alternate CDN URLs; avoids H.265 video fallback when Mux is ready. */
-function MuxPosterThumbnail({
-  playbackId,
-  muxAspectRatio,
-  alt,
-  className,
-  fallbackVideoSrc,
-  downloadHref,
-  imgClassName = 'h-full w-full object-contain',
-  layout = 'grid',
-  muxReady = true,
-}: {
-  playbackId: string;
-  muxAspectRatio?: string | null;
-  alt: string;
-  className?: string;
-  fallbackVideoSrc: string;
-  downloadHref?: string;
-  imgClassName?: string;
-  layout?: 'grid' | 'carousel';
-  /** When true, do not fall back to Drive proxy video (often H.265 / blank in Chrome). */
-  muxReady?: boolean;
-}) {
-  const posterUrls = useMemo(
-    () => muxPosterFallbackUrls(playbackId, muxAspectRatio, layout),
-    [playbackId, muxAspectRatio, layout],
-  );
-  const [urlIndex, setUrlIndex] = useState(0);
-  const [exhaustedMux, setExhaustedMux] = useState(false);
-
-  useEffect(() => {
-    setUrlIndex(0);
-    setExhaustedMux(false);
-  }, [playbackId, fallbackVideoSrc, posterUrls]);
-
-  if (exhaustedMux) {
-    if (!muxReady) {
-      return (
-        <VideoWithThumbnail
-          key={fallbackVideoSrc}
-          src={fallbackVideoSrc}
-          downloadHref={downloadHref}
-          className={className ?? imgClassName}
-        />
-      );
-    }
-    return (
-      <div
-        className={`flex flex-col items-center justify-center gap-2 bg-gray-900 px-2 text-center ${className ?? imgClassName}`}
-        aria-hidden
-      >
-        <svg className="h-10 w-10 shrink-0 text-gray-500" fill="currentColor" viewBox="0 0 24 24">
-          <path d="M8 5v14l11-7z" />
-        </svg>
-        {downloadHref ? (
-          <a
-            href={downloadHref}
-            className="pointer-events-auto max-w-full truncate text-xs font-medium text-amber-400 underline hover:text-amber-300"
-            onClick={(e) => e.stopPropagation()}
-          >
-            Download to view
-          </a>
-        ) : null}
-      </div>
-    );
-  }
-
-  const src = posterUrls[urlIndex] ?? posterUrls[0];
-  if (!src) {
-    return null;
-  }
-
-  return (
-    // eslint-disable-next-line @next/next/no-img-element
-    <img
-      key={src}
-      src={src}
-      alt={alt}
-      loading="lazy"
-      decoding="async"
-      referrerPolicy="no-referrer"
-      className={imgClassName}
-      onError={() => {
-        if (urlIndex < posterUrls.length - 1) {
-          setUrlIndex((i) => i + 1);
-        } else {
-          setExhaustedMux(true);
-        }
-      }}
-    />
-  );
-}
-
-function muxThumbContainerStyle(muxAspectRatio: string | null | undefined): CSSProperties | undefined {
-  const cfg = muxGridPosterConfig(muxAspectRatio);
-  return {
-    aspectRatio: cfg.containerAspectRatio,
-    ...(cfg.containerMinHeightPx != null ? { minHeight: cfg.containerMinHeightPx } : {}),
-  };
 }
 
 interface ReviewAsset {
@@ -1319,16 +1215,7 @@ function PlacementGroupCard({
                     {isVideo && (
                       <div className="relative h-full w-full">
                         {carouselMuxPoster && carouselMuxPid ? (
-                          <MuxPosterThumbnail
-                            playbackId={carouselMuxPid}
-                            muxAspectRatio={asset.muxAspectRatio}
-                            alt={asset.name}
-                            fallbackVideoSrc={src}
-                            downloadHref={reviewFileDownloadHref(src)}
-                            imgClassName="h-full w-full object-cover transition-transform group-hover:scale-105"
-                            layout="carousel"
-                            muxReady={carouselMuxPoster}
-                          />
+                          <GridMuxPreview playbackId={carouselMuxPid} />
                         ) : (
                           <VideoWithThumbnail
                             key={asset.fileId}
@@ -1592,7 +1479,6 @@ function AssetCard({
   const isAudio = reviewAssetIsAudio(asset.mimeType, asset.name);
   const muxPid = asset.muxPlaybackId?.trim();
   const muxPoster = muxPlaybackReadyForThumbnail(asset.muxStatus, muxPid);
-  const thumbAspectFromMux = Boolean(muxPoster && isVideo);
   const isNew = isAssetNew(asset);
   const effectiveState: ReviewState | undefined = asset.assetApprovedClient ? 'approved' : asset.reviewState;
   const badgeLabel = isNew ? 'New' : statusBadgeLabel(effectiveState);
@@ -1629,10 +1515,9 @@ function AssetCard({
       className="group flex-1 overflow-hidden text-left focus:outline-none focus:ring-2 focus:ring-amber-500/50 focus:ring-inset"
     >
       <div
-        className={`relative flex w-full items-center justify-center bg-gray-900 ${
-          thumbAspectFromMux ? '' : isAudio ? 'min-h-[140px]' : 'aspect-video'
+        className={`relative w-full overflow-hidden bg-gray-900 ${
+          isVideo ? 'aspect-video' : isAudio ? 'min-h-[140px]' : 'aspect-video'
         }`}
-        style={thumbAspectFromMux ? muxThumbContainerStyle(asset.muxAspectRatio) : undefined}
       >
         {/* Status badge: right of checkbox when checkbox present, else left-2 */}
         <span
@@ -1652,34 +1537,28 @@ function AssetCard({
           />
         )}
         {isVideo && (
-          <div className="relative h-full w-full">
+          <>
             {muxPoster && muxPid ? (
-              <MuxPosterThumbnail
-                playbackId={muxPid}
-                muxAspectRatio={asset.muxAspectRatio}
-                alt={asset.name}
-                fallbackVideoSrc={src}
-                downloadHref={reviewFileDownloadHref(src)}
-                imgClassName="h-full w-full object-contain"
-                muxReady={muxPoster}
-              />
+              <GridMuxPreview playbackId={muxPid} />
             ) : (
-              <VideoWithThumbnail
-                key={asset.fileId}
-                src={src}
-                downloadHref={reviewFileDownloadHref(src)}
-                className="h-full w-full object-contain"
-              />
+              <div className="absolute inset-0">
+                <VideoWithThumbnail
+                  key={asset.fileId}
+                  src={src}
+                  downloadHref={reviewFileDownloadHref(src)}
+                  className="h-full w-full object-cover"
+                />
+              </div>
             )}
             {/* Play icon overlay */}
-            <div className="absolute inset-0 flex items-center justify-center">
+            <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
               <div className="rounded-full bg-black/60 p-3 transition-transform group-hover:scale-110">
                 <svg className="h-8 w-8 text-white" fill="currentColor" viewBox="0 0 24 24">
                   <path d="M8 5v14l11-7z" />
                 </svg>
               </div>
             </div>
-          </div>
+          </>
         )}
         {isAudio && (
           <div
