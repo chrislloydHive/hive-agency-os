@@ -37,6 +37,8 @@ export type MuxThumbnailImageOpts = {
   fitMode: MuxThumbnailFitMode;
   /** When set with preserve, also requests height so Mux matches the creative aspect. */
   muxAspectRatio?: string | null;
+  /** Frame offset in seconds (avoids blank slates at t=0). */
+  timeSeconds?: number;
 };
 
 /**
@@ -44,7 +46,7 @@ export type MuxThumbnailImageOpts = {
  * @see https://docs.mux.com/guides/video/get-images-from-a-video
  */
 export function muxThumbnailImageUrl(playbackId: string, opts: MuxThumbnailImageOpts): string {
-  const id = encodeURIComponent(playbackId.trim());
+  const id = playbackId.trim();
   const params = new URLSearchParams();
   if (opts.squareLogicalPx != null) {
     const edge = Math.round(Math.min(1280, Math.max(120, opts.squareLogicalPx * 2)));
@@ -61,7 +63,40 @@ export function muxThumbnailImageUrl(playbackId: string, opts: MuxThumbnailImage
     }
   }
   params.set('fit_mode', opts.fitMode);
+  if (opts.timeSeconds != null && opts.timeSeconds >= 0) {
+    params.set('time', String(opts.timeSeconds));
+  }
   return `https://image.mux.com/${id}/thumbnail.jpg?${params.toString()}`;
+}
+
+function muxSmartcropPosterUrl(
+  playbackId: string,
+  width: number,
+  height: number,
+  timeSeconds: number,
+): string {
+  const id = playbackId.trim();
+  const params = new URLSearchParams({
+    width: String(width),
+    height: String(height),
+    fit_mode: 'smartcrop',
+    time: String(timeSeconds),
+  });
+  return `https://image.mux.com/${id}/thumbnail.jpg?${params.toString()}`;
+}
+
+/** Grid card posters: 16:9 smartcrop at several timestamps (skips blank first frames). */
+export function muxGridPosterUrls(playbackId: string): string[] {
+  const id = playbackId.trim();
+  if (!id) return [];
+  return [1.5, 2.5, 0.75, 3].map((t) => muxSmartcropPosterUrl(id, 640, 360, t));
+}
+
+/** Carousel strip tiles (square smartcrop). */
+export function muxCarouselPosterUrls(playbackId: string): string[] {
+  const id = playbackId.trim();
+  if (!id) return [];
+  return [1.5, 2.5, 0.75].map((t) => muxSmartcropPosterUrl(id, 280, 280, t));
 }
 
 /** Wide leaderboard / banner creatives: crop for readable grid tiles instead of ~30px-tall strips. */

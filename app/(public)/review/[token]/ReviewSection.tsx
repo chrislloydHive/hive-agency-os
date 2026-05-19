@@ -15,7 +15,7 @@ import {
   reviewAssetIsVideo,
 } from '@/lib/review/reviewMediaDisplay';
 import { muxPlaybackReadyForThumbnail } from '@/lib/review/muxThumbnail';
-import GridMuxPreview from './GridMuxPreview';
+import GridMuxPoster from './GridMuxPoster';
 import { getSectionCounts, isAssetNew } from './reviewAssetUtils';
 import type { ReviewState } from './ReviewPortalClient';
 
@@ -1215,7 +1215,12 @@ function PlacementGroupCard({
                     {isVideo && (
                       <div className="relative h-full w-full">
                         {carouselMuxPoster && carouselMuxPid ? (
-                          <GridMuxPreview playbackId={carouselMuxPid} />
+                          <GridMuxPoster
+                            playbackId={carouselMuxPid}
+                            alt={asset.name}
+                            layout="carousel"
+                            className="h-full w-full object-cover transition-transform group-hover:scale-105"
+                          />
                         ) : (
                           <VideoWithThumbnail
                             key={asset.fileId}
@@ -1539,7 +1544,7 @@ function AssetCard({
         {isVideo && (
           <>
             {muxPoster && muxPid ? (
-              <GridMuxPreview playbackId={muxPid} />
+              <GridMuxPoster playbackId={muxPid} alt={asset.name} />
             ) : (
               <div className="absolute inset-0">
                 <VideoWithThumbnail
