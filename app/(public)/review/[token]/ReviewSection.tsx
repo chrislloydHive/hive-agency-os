@@ -1193,14 +1193,17 @@ function PlacementGroupCard({
               });
 
               return (
-                <button
+                <div
                   key={asset.fileId}
-                  type="button"
-                  onClick={() => openLightbox(assetIndex)}
-                  className={`group relative flex-shrink-0 overflow-hidden rounded-lg border-2 transition-all hover:border-amber-500 hover:shadow-lg hover:shadow-amber-500/20 focus:outline-none focus:ring-2 focus:ring-amber-500 ${
+                  className={`flex flex-shrink-0 flex-col overflow-hidden rounded-lg border-2 ${
                     isApproved ? 'border-emerald-500/50' : 'border-gray-600'
                   } ${selectedFileIds.has(asset.fileId) ? 'ring-2 ring-amber-500' : ''}`}
                   style={{ width: '140px' }}
+                >
+                <button
+                  type="button"
+                  onClick={() => openLightbox(assetIndex)}
+                  className="group relative overflow-hidden transition-all hover:border-amber-500 hover:shadow-lg hover:shadow-amber-500/20 focus:outline-none focus:ring-2 focus:ring-amber-500"
                 >
                   {/* Card number label - prominent positioning */}
                   <div className="absolute inset-x-0 top-0 z-20 bg-gradient-to-b from-gray-900/90 to-transparent px-2 py-1.5">
@@ -1249,13 +1252,10 @@ function PlacementGroupCard({
                       </div>
                     )}
                     {isAudio && (
-                      <div
-                        className="flex h-full w-full flex-col items-center justify-center gap-1 bg-gray-900 p-2"
-                        onClick={(e) => e.stopPropagation()}
-                        onKeyDown={(e) => e.stopPropagation()}
-                      >
-                        {/* eslint-disable-next-line jsx-a11y/media-has-caption */}
-                        <audio src={src} controls preload="metadata" className="w-full" />
+                      <div className="flex h-full w-full items-center justify-center bg-gray-900 p-2">
+                        <svg className="h-8 w-8 text-amber-500/80" fill="currentColor" viewBox="0 0 24 24" aria-hidden>
+                          <path d="M12 3v10.55A4 4 0 1014 17V7h4V3h-6z" />
+                        </svg>
                       </div>
                     )}
                     {!isImage && !isVideo && !isAudio && (
@@ -1295,6 +1295,13 @@ function PlacementGroupCard({
                     </div>
                   )}
                 </button>
+                {isAudio && (
+                  <div className="border-t border-gray-700 bg-gray-800 p-1.5">
+                    {/* eslint-disable-next-line jsx-a11y/media-has-caption */}
+                    <audio src={src} controls preload="metadata" className="h-8 w-full" />
+                  </div>
+                )}
+                </div>
               );
             })}
           </div>
@@ -1575,13 +1582,10 @@ function AssetCard({
           </>
         )}
         {isAudio && (
-          <div
-            className="flex w-full flex-col items-center justify-center gap-2 px-3 py-4"
-            onClick={(e) => e.stopPropagation()}
-            onKeyDown={(e) => e.stopPropagation()}
-          >
-            {/* eslint-disable-next-line jsx-a11y/media-has-caption */}
-            <audio src={src} controls preload="metadata" className="w-full max-w-full" />
+          <div className="flex w-full flex-col items-center justify-center gap-2 px-3 py-4">
+            <svg className="h-10 w-10 text-amber-500/80" fill="currentColor" viewBox="0 0 24 24" aria-hidden>
+              <path d="M12 3v10.55A4 4 0 1014 17V7h4V3h-6z" />
+            </svg>
           </div>
         )}
         {!isImage && !isVideo && !isAudio && (
@@ -1610,6 +1614,12 @@ function AssetCard({
         <AssetDetailsLine asset={asset} />
       </div>
     </button>
+    {isAudio && (
+      <div className="border-t border-gray-700 px-3 py-3">
+        {/* eslint-disable-next-line jsx-a11y/media-has-caption */}
+        <audio src={src} controls preload="metadata" className="w-full max-w-full" />
+      </div>
+    )}
     </div>
     {hasClickThrough && (
       <a

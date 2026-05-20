@@ -142,13 +142,20 @@ function inlineFileResponseHeaders(
   asciiName: string,
   finalFileName: string,
 ): Headers {
+  // Audio + media-with-Range MUST NOT be CDN-cacheable: Vercel's edge downgrades
+  // cached 206 responses to 200 (keeps the partial body + Content-Range), which
+  // is non-standard and stalls <audio>/<video> playback. Use `private` so the
+  // browser can still cache locally but the shared cache won't.
+  const isAudio = contentType.toLowerCase().startsWith('audio/');
+  const cacheControl = isAudio ? 'private, max-age=300' : 'public, max-age=300';
   const h = new Headers({
     'Content-Type': contentType,
-    'Cache-Control': 'public, max-age=300',
+    'Cache-Control': cacheControl,
     'Access-Control-Allow-Origin': '*',
     'Access-Control-Allow-Methods': 'GET, HEAD, OPTIONS',
     'Access-Control-Allow-Headers': 'Range',
     'X-Content-Type-Options': 'nosniff',
+    Vary: 'Range',
   });
   const disp = download
     ? `attachment; filename="${asciiName}"; filename*=UTF-8''${encodeURIComponent(finalFileName)}`
@@ -508,18 +515,19 @@ export async function GET(
     );
 
     // Audio fix: <audio> sends `Range: bytes=0-` to probe metadata. Drive often
-    // ignores Range for mp3/m4a and returns 200 + chunked (no Content-Length),
-    // leaving the browser unable to read duration → stall. Same for unknown-length
-    // 200s on audio types. Buffer once, then synthesize a proper 206 (or 200 with
-    // Content-Length) so playback initializes. Limit to audio so we never buffer
-    // multi-GB videos in memory; videos work today via Drive's native 206 path.
+    // ignores Range for mp3/m4a and returns 200 + chunked (no Content-Length), or
+    // 200 with a bogus Content-Range on the full body. Browsers stall without a
+    // known length; they also reject 200 + Content-Range (206-only header). Vercel
+    // may downgrade synthesized 206 to 200 while keeping Content-Range — also
+    // broken. Buffer once and return 200 + Content-Length + full body (no
+    // Content-Range). Review MP3s are small; videos still stream.
     const isAudio = contentTypeForResponse.toLowerCase().startsWith('audio/');
-    // Drive may attach Content-Range on a full 200 body; still slice when the client sent Range.
-    const needsRangeSynthesis = isAudio && !!rangeHeader && upstreamStatus === 200;
-    const needsLengthSynthesis =
-      isAudio && upstreamStatus === 200 && !upstreamLen && !upstreamRange && !rangeHeader;
+    const needsAudioBuffer =
+      isAudio &&
+      upstreamStatus === 200 &&
+      (!upstreamLen || !!rangeHeader || !!upstreamRange);
 
-    if (needsRangeSynthesis || needsLengthSynthesis) {
+    if (needsAudioBuffer) {
       const chunks: Buffer[] = [];
       for await (const c of stream) {
         chunks.push(typeof c === 'string' ? Buffer.from(c) : (c as Buffer));
@@ -527,47 +535,19 @@ export async function GET(
       const full = Buffer.concat(chunks);
       const total = full.length;
       baseHeaders.set('Accept-Ranges', 'bytes');
-
-      if (needsRangeSynthesis) {
-        const m = /^bytes=(\d*)-(\d*)$/.exec(rangeHeader!);
-        let start = 0;
-        let end = total - 1;
-        if (m) {
-          if (m[1] !== '') start = parseInt(m[1], 10);
-          if (m[2] !== '') end = parseInt(m[2], 10);
-        }
-        if (!Number.isFinite(start) || !Number.isFinite(end) || start < 0 || start >= total) {
-          console.warn('[review/files] audio Range unsatisfiable', { rangeHeader, total });
-          return new Response(null, {
-            status: 416,
-            headers: new Headers({
-              ...NO_STORE,
-              'Content-Range': `bytes */${total}`,
-            }),
-          });
-        }
-        end = Math.min(end, total - 1);
-        const slice = full.subarray(start, end + 1);
-        baseHeaders.set('Content-Length', String(slice.length));
-        baseHeaders.set('Content-Range', `bytes ${start}-${end}/${total}`);
-        console.log(
-          '[review/files] audio Range synthesized',
-          `bytes ${start}-${end}/${total}`,
-          'mimeType',
-          contentTypeForResponse,
-        );
-        return new Response(req.method === 'HEAD' ? null : slice, { status: 206, headers: baseHeaders });
-      }
-
-      // needsLengthSynthesis: full body, just add Content-Length so duration works
       baseHeaders.set('Content-Length', String(total));
       console.log(
-        '[review/files] audio Content-Length synthesized',
+        '[review/files] audio buffered 200',
         total,
+        'rangeRequested',
+        !!rangeHeader,
         'mimeType',
         contentTypeForResponse,
       );
-      return new Response(req.method === 'HEAD' ? null : full, { status: 200, headers: baseHeaders });
+      return new NextResponse(req.method === 'HEAD' ? null : full, {
+        status: 200,
+        headers: baseHeaders,
+      });
     }
 
     // Non-audio (and audio that already has Content-Range/Length): stream as before.
