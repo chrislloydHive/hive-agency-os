@@ -514,10 +514,10 @@ export async function GET(
     // Content-Length) so playback initializes. Limit to audio so we never buffer
     // multi-GB videos in memory; videos work today via Drive's native 206 path.
     const isAudio = contentTypeForResponse.toLowerCase().startsWith('audio/');
-    const needsRangeSynthesis =
-      isAudio && !!rangeHeader && upstreamStatus === 200 && !upstreamRange;
+    // Drive may attach Content-Range on a full 200 body; still slice when the client sent Range.
+    const needsRangeSynthesis = isAudio && !!rangeHeader && upstreamStatus === 200;
     const needsLengthSynthesis =
-      isAudio && upstreamStatus === 200 && !upstreamLen && !upstreamRange;
+      isAudio && upstreamStatus === 200 && !upstreamLen && !upstreamRange && !rangeHeader;
 
     if (needsRangeSynthesis || needsLengthSynthesis) {
       const chunks: Buffer[] = [];
