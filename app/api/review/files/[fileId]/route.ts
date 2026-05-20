@@ -135,6 +135,36 @@ function getRespHeader(
   return undefined;
 }
 
+/** Build disposition + CORS headers shared by GET and HEAD. */
+function inlineFileResponseHeaders(
+  contentType: string,
+  download: boolean,
+  asciiName: string,
+  finalFileName: string,
+): Headers {
+  const h = new Headers({
+    'Content-Type': contentType,
+    'Cache-Control': 'public, max-age=300',
+    'Access-Control-Allow-Origin': '*',
+    'Access-Control-Allow-Methods': 'GET, HEAD, OPTIONS',
+    'Access-Control-Allow-Headers': 'Range',
+    'X-Content-Type-Options': 'nosniff',
+  });
+  const disp = download
+    ? `attachment; filename="${asciiName}"; filename*=UTF-8''${encodeURIComponent(finalFileName)}`
+    : `inline; filename="${asciiName}"; filename*=UTF-8''${encodeURIComponent(finalFileName)}`;
+  h.set('Content-Disposition', disp);
+  return h;
+}
+
+export async function HEAD(
+  req: NextRequest,
+  ctx: { params: Promise<{ fileId: string }> },
+) {
+  const getRes = await GET(req, ctx);
+  return new Response(null, { status: getRes.status, headers: getRes.headers });
+}
+
 export async function GET(
   req: NextRequest,
   { params }: { params: Promise<{ fileId: string }> },
@@ -470,22 +500,12 @@ export async function GET(
 
     const stream = mediaRes.data as Readable;
 
-    const headers: Record<string, string> = {
-      'Content-Type': contentTypeForResponse,
-      'Cache-Control': 'public, max-age=300',
-      'Access-Control-Allow-Origin': '*',
-      'Access-Control-Allow-Methods': 'GET, HEAD, OPTIONS',
-      'Access-Control-Allow-Headers': 'Range',
-      'X-Content-Type-Options': 'nosniff',
-    };
-
-    if (download) {
-      headers['Content-Disposition'] =
-        `attachment; filename="${asciiName}"; filename*=UTF-8''${encodeURIComponent(finalFileName)}`;
-    } else {
-      headers['Content-Disposition'] =
-        `inline; filename="${asciiName}"; filename*=UTF-8''${encodeURIComponent(finalFileName)}`;
-    }
+    const baseHeaders = inlineFileResponseHeaders(
+      contentTypeForResponse,
+      download,
+      asciiName,
+      finalFileName,
+    );
 
     // Audio fix: <audio> sends `Range: bytes=0-` to probe metadata. Drive often
     // ignores Range for mp3/m4a and returns 200 + chunked (no Content-Length),
@@ -506,7 +526,7 @@ export async function GET(
       }
       const full = Buffer.concat(chunks);
       const total = full.length;
-      headers['Accept-Ranges'] = 'bytes';
+      baseHeaders.set('Accept-Ranges', 'bytes');
 
       if (needsRangeSynthesis) {
         const m = /^bytes=(\d*)-(\d*)$/.exec(rangeHeader!);
@@ -518,47 +538,65 @@ export async function GET(
         }
         if (!Number.isFinite(start) || !Number.isFinite(end) || start < 0 || start >= total) {
           console.warn('[review/files] audio Range unsatisfiable', { rangeHeader, total });
-          return new NextResponse(null, {
+          return new Response(null, {
             status: 416,
-            headers: { ...NO_STORE, 'Content-Range': `bytes */${total}` },
+            headers: new Headers({
+              ...NO_STORE,
+              'Content-Range': `bytes */${total}`,
+            }),
           });
         }
         end = Math.min(end, total - 1);
         const slice = full.subarray(start, end + 1);
-        headers['Content-Length'] = String(slice.length);
-        headers['Content-Range'] = `bytes ${start}-${end}/${total}`;
+        baseHeaders.set('Content-Length', String(slice.length));
+        baseHeaders.set('Content-Range', `bytes ${start}-${end}/${total}`);
         console.log(
           '[review/files] audio Range synthesized',
           `bytes ${start}-${end}/${total}`,
           'mimeType',
           contentTypeForResponse,
         );
-        return new NextResponse(new Uint8Array(slice), { status: 206, headers });
+        return new Response(req.method === 'HEAD' ? null : slice, { status: 206, headers: baseHeaders });
       }
 
       // needsLengthSynthesis: full body, just add Content-Length so duration works
-      headers['Content-Length'] = String(total);
+      baseHeaders.set('Content-Length', String(total));
       console.log(
         '[review/files] audio Content-Length synthesized',
         total,
         'mimeType',
         contentTypeForResponse,
       );
-      return new NextResponse(new Uint8Array(full), { status: 200, headers });
+      return new Response(req.method === 'HEAD' ? null : full, { status: 200, headers: baseHeaders });
     }
 
     // Non-audio (and audio that already has Content-Range/Length): stream as before.
+    const finalStatus = upstreamStatus === 206 ? 206 : 200;
+    if (req.method === 'HEAD') {
+      destroyIfStream(stream);
+      console.log(
+        '[review/files] HEAD',
+        finalStatus,
+        'mimeType',
+        contentTypeForResponse,
+        'contentLength',
+        upstreamLen ?? '(chunked/unknown)',
+        'contentRange',
+        upstreamRange ?? '(none)',
+      );
+      return new NextResponse(null, { status: finalStatus, headers: baseHeaders });
+    }
+
     const webStream = Readable.toWeb(stream) as ReadableStream<Uint8Array>;
 
     if (upstreamLen) {
-      headers['Content-Length'] = upstreamLen;
+      baseHeaders.set('Content-Length', upstreamLen);
     }
     if (upstreamRange) {
-      headers['Content-Range'] = upstreamRange;
+      baseHeaders.set('Content-Range', upstreamRange);
     }
-    headers['Accept-Ranges'] = upstreamAcceptRanges || 'bytes';
+    baseHeaders.set('Accept-Ranges', upstreamAcceptRanges || 'bytes');
 
-    const finalStatus = upstreamStatus === 206 ? 206 : 200;
     console.log(
       '[review/files] final status',
       finalStatus,
@@ -572,7 +610,7 @@ export async function GET(
       upstreamRange ?? '(none)',
     );
 
-    return new NextResponse(webStream, { status: finalStatus, headers });
+    return new NextResponse(webStream, { status: finalStatus, headers: baseHeaders });
   } catch (err: unknown) {
     const msg = err instanceof Error ? err.message : String(err);
     console.error('[review/files] Drive stream/export error:', msg);
