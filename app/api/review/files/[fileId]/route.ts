@@ -469,7 +469,6 @@ export async function GET(
     const upstreamAcceptRanges = getRespHeader(rawHeaders, 'accept-ranges');
 
     const stream = mediaRes.data as Readable;
-    const webStream = Readable.toWeb(stream) as ReadableStream<Uint8Array>;
 
     const headers: Record<string, string> = {
       'Content-Type': contentTypeForResponse,
@@ -480,14 +479,6 @@ export async function GET(
       'X-Content-Type-Options': 'nosniff',
     };
 
-    if (upstreamLen) {
-      headers['Content-Length'] = upstreamLen;
-    }
-    if (upstreamRange) {
-      headers['Content-Range'] = upstreamRange;
-    }
-    headers['Accept-Ranges'] = upstreamAcceptRanges || 'bytes';
-
     if (download) {
       headers['Content-Disposition'] =
         `attachment; filename="${asciiName}"; filename*=UTF-8''${encodeURIComponent(finalFileName)}`;
@@ -495,6 +486,77 @@ export async function GET(
       headers['Content-Disposition'] =
         `inline; filename="${asciiName}"; filename*=UTF-8''${encodeURIComponent(finalFileName)}`;
     }
+
+    // Audio fix: <audio> sends `Range: bytes=0-` to probe metadata. Drive often
+    // ignores Range for mp3/m4a and returns 200 + chunked (no Content-Length),
+    // leaving the browser unable to read duration → stall. Same for unknown-length
+    // 200s on audio types. Buffer once, then synthesize a proper 206 (or 200 with
+    // Content-Length) so playback initializes. Limit to audio so we never buffer
+    // multi-GB videos in memory; videos work today via Drive's native 206 path.
+    const isAudio = contentTypeForResponse.toLowerCase().startsWith('audio/');
+    const needsRangeSynthesis =
+      isAudio && !!rangeHeader && upstreamStatus === 200 && !upstreamRange;
+    const needsLengthSynthesis =
+      isAudio && upstreamStatus === 200 && !upstreamLen && !upstreamRange;
+
+    if (needsRangeSynthesis || needsLengthSynthesis) {
+      const chunks: Buffer[] = [];
+      for await (const c of stream) {
+        chunks.push(typeof c === 'string' ? Buffer.from(c) : (c as Buffer));
+      }
+      const full = Buffer.concat(chunks);
+      const total = full.length;
+      headers['Accept-Ranges'] = 'bytes';
+
+      if (needsRangeSynthesis) {
+        const m = /^bytes=(\d*)-(\d*)$/.exec(rangeHeader!);
+        let start = 0;
+        let end = total - 1;
+        if (m) {
+          if (m[1] !== '') start = parseInt(m[1], 10);
+          if (m[2] !== '') end = parseInt(m[2], 10);
+        }
+        if (!Number.isFinite(start) || !Number.isFinite(end) || start < 0 || start >= total) {
+          console.warn('[review/files] audio Range unsatisfiable', { rangeHeader, total });
+          return new NextResponse(null, {
+            status: 416,
+            headers: { ...NO_STORE, 'Content-Range': `bytes */${total}` },
+          });
+        }
+        end = Math.min(end, total - 1);
+        const slice = full.subarray(start, end + 1);
+        headers['Content-Length'] = String(slice.length);
+        headers['Content-Range'] = `bytes ${start}-${end}/${total}`;
+        console.log(
+          '[review/files] audio Range synthesized',
+          `bytes ${start}-${end}/${total}`,
+          'mimeType',
+          contentTypeForResponse,
+        );
+        return new NextResponse(new Uint8Array(slice), { status: 206, headers });
+      }
+
+      // needsLengthSynthesis: full body, just add Content-Length so duration works
+      headers['Content-Length'] = String(total);
+      console.log(
+        '[review/files] audio Content-Length synthesized',
+        total,
+        'mimeType',
+        contentTypeForResponse,
+      );
+      return new NextResponse(new Uint8Array(full), { status: 200, headers });
+    }
+
+    // Non-audio (and audio that already has Content-Range/Length): stream as before.
+    const webStream = Readable.toWeb(stream) as ReadableStream<Uint8Array>;
+
+    if (upstreamLen) {
+      headers['Content-Length'] = upstreamLen;
+    }
+    if (upstreamRange) {
+      headers['Content-Range'] = upstreamRange;
+    }
+    headers['Accept-Ranges'] = upstreamAcceptRanges || 'bytes';
 
     const finalStatus = upstreamStatus === 206 ? 206 : 200;
     console.log(
