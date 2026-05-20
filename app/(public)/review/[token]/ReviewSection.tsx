@@ -16,6 +16,7 @@ import {
 } from '@/lib/review/reviewMediaDisplay';
 import { muxPlaybackReadyForThumbnail } from '@/lib/review/muxThumbnail';
 import GridMuxPoster from './GridMuxPoster';
+import { ReviewAudioPlayer } from './ReviewAudioPlayer';
 import { getSectionCounts, isAssetNew } from './reviewAssetUtils';
 import type { ReviewState } from './ReviewPortalClient';
 
@@ -1297,8 +1298,7 @@ function PlacementGroupCard({
                 </button>
                 {isAudio && (
                   <div className="border-t border-gray-700 bg-gray-800 p-1.5">
-                    {/* eslint-disable-next-line jsx-a11y/media-has-caption */}
-                    <audio src={src} controls preload="metadata" className="h-8 w-full" />
+                    <ReviewAudioPlayer src={src} fileName={asset.name} className="h-8 w-full" />
                   </div>
                 )}
                 </div>
@@ -1616,8 +1616,7 @@ function AssetCard({
     </button>
     {isAudio && (
       <div className="border-t border-gray-700 px-3 py-3">
-        {/* eslint-disable-next-line jsx-a11y/media-has-caption */}
-        <audio src={src} controls preload="metadata" className="w-full max-w-full" />
+        <ReviewAudioPlayer src={src} fileName={asset.name} className="w-full max-w-full" />
       </div>
     )}
     </div>

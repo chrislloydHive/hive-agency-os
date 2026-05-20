@@ -392,11 +392,13 @@ export async function GET(
       return new NextResponse(webStream, { status: 200, headers });
     }
 
-    // Regular binary: forward Range to Drive, stream body, preserve 206 + Content-Range for media.
+    // Regular binary: forward Range to Drive for video/images. Never forward Range for
+    // audio — Drive may answer 206 and Vercel strips Content-Range, which breaks <audio>.
+    const isAudio = contentTypeForResponse.toLowerCase().startsWith('audio/');
     const streamOpts = {
       responseType: 'stream' as const,
       validateStatus: (): boolean => true,
-      ...(rangeHeader ? { headers: { Range: rangeHeader } } : {}),
+      ...(rangeHeader && !isAudio ? { headers: { Range: rangeHeader } } : {}),
     };
 
     let mediaRes;
@@ -514,40 +516,55 @@ export async function GET(
       finalFileName,
     );
 
-    // Audio fix: <audio> sends `Range: bytes=0-` to probe metadata. Drive often
-    // ignores Range for mp3/m4a and returns 200 + chunked (no Content-Length), or
-    // 200 with a bogus Content-Range on the full body. Browsers stall without a
-    // known length; they also reject 200 + Content-Range (206-only header). Vercel
-    // may downgrade synthesized 206 to 200 while keeping Content-Range — also
-    // broken. Buffer once and return 200 + Content-Length + full body (no
-    // Content-Range). Review MP3s are small; videos still stream.
-    const isAudio = contentTypeForResponse.toLowerCase().startsWith('audio/');
-    const needsAudioBuffer =
-      isAudio &&
-      upstreamStatus === 200 &&
-      (!upstreamLen || !!rangeHeader || !!upstreamRange);
-
-    if (needsAudioBuffer) {
+    // Audio: always buffer a full 200 from Drive (Range is not forwarded above).
+    // Respond with 200 + Content-Length only — never 206/Content-Range (browsers and
+    // Vercel mishandle those for <audio>). Review MP3s are small; videos still stream.
+    const AUDIO_MAX_BYTES = 32 * 1024 * 1024;
+    if (isAudio) {
+      let audioStream: Readable = stream;
+      if (upstreamStatus !== 200) {
+        destroyIfStream(stream);
+        if (upstreamStatus === 206) {
+          console.warn('[review/files] audio upstream 206; refetching without Range', {
+            fileId: fileId.slice(0, 12),
+          });
+          const fullRes = await withTimeout(
+            drive.files.get({ fileId, alt: 'media', supportsAllDrives: true }, {
+              responseType: 'stream' as const,
+              validateStatus: (): boolean => true,
+            }),
+            120_000,
+            `drive.files.get media(audio full) fileId=${fileId}`,
+          );
+          if (fullRes.status !== 200) {
+            destroyIfStream(fullRes.data);
+            return jsonError(502, 'File not accessible');
+          }
+          audioStream = fullRes.data as Readable;
+        } else {
+          return jsonError(502, 'File not accessible');
+        }
+      }
       const chunks: Buffer[] = [];
-      for await (const c of stream) {
+      for await (const c of audioStream) {
         chunks.push(typeof c === 'string' ? Buffer.from(c) : (c as Buffer));
       }
       const full = Buffer.concat(chunks);
       const total = full.length;
-      baseHeaders.set('Accept-Ranges', 'bytes');
+      if (total > AUDIO_MAX_BYTES) {
+        return jsonError(413, 'Audio file too large for preview');
+      }
       baseHeaders.set('Content-Length', String(total));
       console.log(
         '[review/files] audio buffered 200',
         total,
-        'rangeRequested',
+        'clientRangeIgnored',
         !!rangeHeader,
         'mimeType',
         contentTypeForResponse,
       );
-      return new NextResponse(req.method === 'HEAD' ? null : full, {
-        status: 200,
-        headers: baseHeaders,
-      });
+      const body = req.method === 'HEAD' ? null : new Uint8Array(full);
+      return new NextResponse(body, { status: 200, headers: baseHeaders });
     }
 
     // Non-audio (and audio that already has Content-Range/Length): stream as before.
