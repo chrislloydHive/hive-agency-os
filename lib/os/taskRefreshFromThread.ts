@@ -12,6 +12,12 @@ import {
   type GmailMessageLike,
   type MsgPart,
 } from '@/lib/gmail/threadContext';
+import {
+  isGmailThreadNotFoundError,
+  primaryThreadGoneMessage,
+  targetThreadGoneMessage,
+  THREAD_GONE_CODE,
+} from '@/lib/os/gmailThreadGone';
 
 export const REFRESH_FROM_THREAD_MODEL = 'claude-sonnet-4-6';
 
@@ -223,7 +229,7 @@ export type RefreshFromThreadOk =
 
 export type RefreshFromThreadResult =
   | { ok: true; data: RefreshFromThreadOk }
-  | { ok: false; error: string; status?: number };
+  | { ok: false; error: string; status?: number; code?: typeof THREAD_GONE_CODE };
 
 type PartWithFilename = MsgPart & { filename?: string | null };
 
@@ -312,9 +318,17 @@ export async function runTaskRefreshFromThread(params: {
       primaryMessages = (primary.data.messages || []) as GmailMessageLike[];
     }
   } catch (e) {
+    if (isGmailThreadNotFoundError(e)) {
+      return {
+        ok: false,
+        code: THREAD_GONE_CODE,
+        error: primaryThreadGoneMessage(e),
+        status: 410,
+      };
+    }
     return {
       ok: false,
-      error: `Could not load primary Gmail thread: ${e instanceof Error ? e.message : 'unknown'}`,
+      error: primaryThreadGoneMessage(e),
       status: 502,
     };
   }
@@ -347,9 +361,17 @@ export async function runTaskRefreshFromThread(params: {
       });
       messages = (t.data.messages || []) as GmailMessageLike[];
     } catch (e) {
+      if (isGmailThreadNotFoundError(e)) {
+        return {
+          ok: false,
+          code: THREAD_GONE_CODE,
+          error: targetThreadGoneMessage(targetThreadId, e),
+          status: 410,
+        };
+      }
       return {
         ok: false,
-        error: `Could not load target Gmail thread ${targetThreadId}: ${e instanceof Error ? e.message : 'unknown'}`,
+        error: targetThreadGoneMessage(targetThreadId, e),
         status: 502,
       };
     }

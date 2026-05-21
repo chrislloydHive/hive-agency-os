@@ -4,8 +4,9 @@
 // - Create mode: pass `mode="create"` + `prefill`. POSTs to /api/os/tasks via Create.
 
 import { useEffect, useState, useCallback, useRef } from 'react';
-import { X, Save, ExternalLink, Loader2, CheckSquare, Square, FolderPlus, Layout, ChevronDown, Users, Calendar, AlertCircle, Check } from 'lucide-react';
+import { X, Save, ExternalLink, Loader2, CheckSquare, Square, FolderPlus, Layout, ChevronDown, Users, Calendar, AlertCircle, Check, RefreshCw } from 'lucide-react';
 import { TaskDecider } from './TaskDecider';
+import { RefreshTaskModal } from './RefreshTaskModal';
 import type { TaskView } from '@/lib/airtable/tasks';
 
 // ── PM OS deep links ─────────────────────────────────────────────────────────
@@ -87,6 +88,7 @@ export function TaskEditPanel({ mode = 'edit', taskId, prefill, emailMeta, onClo
   const [notes, setNotes] = useState('');
   const [project, setProject] = useState('');
   const [assignedTo, setAssignedTo] = useState('');
+  const [showRefreshModal, setShowRefreshModal] = useState(false);
 
   // People directory for the Assigned To dropdown
   const [people, setPeople] = useState<PersonOption[]>([]);
@@ -423,30 +425,38 @@ export function TaskEditPanel({ mode = 'edit', taskId, prefill, emailMeta, onClo
                 {!isCreate && task?.project && <div>Project: <span className="text-gray-400">{task.project}</span></div>}
                 {!isCreate && task?.from && <div>From: <span className="text-gray-400">{task.from}</span></div>}
                 {!isCreate && task?.threadUrl && (
-                  <a
-                    href={task.threadUrl}
-                    target="_blank"
-                    rel="noreferrer"
-                    onClick={() => {
-                      // Best-effort mark-as-read (fire-and-forget). Extract
-                      // threadId from Gmail URL; ignore if not parseable.
-                      const url = task.threadUrl!;
-                      const frag = url.split('#')[1];
-                      if (!frag) return;
-                      const parts = frag.split('?')[0].split('/').filter(Boolean);
-                      const threadId = parts[parts.length - 1];
-                      if (threadId && /^[a-zA-Z0-9_-]{8,}$/.test(threadId)) {
-                        fetch('/api/os/gmail/mark-read', {
-                          method: 'POST',
-                          headers: { 'Content-Type': 'application/json' },
-                          body: JSON.stringify({ threadId }),
-                        }).catch(() => {});
-                      }
-                    }}
-                    className="inline-flex items-center gap-1 text-sky-400 hover:text-sky-300"
-                  >
-                    Open email thread <ExternalLink className="w-3 h-3" />
-                  </a>
+                  <div className="flex flex-wrap items-center gap-3">
+                    <a
+                      href={task.threadUrl}
+                      target="_blank"
+                      rel="noreferrer"
+                      onClick={() => {
+                        const url = task.threadUrl!;
+                        const frag = url.split('#')[1];
+                        if (!frag) return;
+                        const parts = frag.split('?')[0].split('/').filter(Boolean);
+                        const threadId = parts[parts.length - 1];
+                        if (threadId && /^[a-zA-Z0-9_-]{8,}$/.test(threadId)) {
+                          fetch('/api/os/gmail/mark-read', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ threadId }),
+                          }).catch(() => {});
+                        }
+                      }}
+                      className="inline-flex items-center gap-1 text-sky-400 hover:text-sky-300"
+                    >
+                      Open email thread <ExternalLink className="w-3 h-3" />
+                    </a>
+                    <button
+                      type="button"
+                      onClick={() => setShowRefreshModal(true)}
+                      className="inline-flex items-center gap-1 text-amber-400/90 hover:text-amber-300"
+                    >
+                      <RefreshCw className="w-3 h-3" />
+                      Refresh from thread
+                    </button>
+                  </div>
                 )}
                 {isCreate && emailMeta?.link && (
                   <a href={emailMeta.link} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 text-sky-400 hover:text-sky-300">
@@ -535,6 +545,21 @@ export function TaskEditPanel({ mode = 'edit', taskId, prefill, emailMeta, onClo
           </div>
         </footer>
       </aside>
+      {showRefreshModal && task?.id && (
+        <RefreshTaskModal
+          taskId={task.id}
+          taskTitle={taskTitle || task.task}
+          onClose={() => setShowRefreshModal(false)}
+          onApplied={() => {
+            setShowRefreshModal(false);
+            onSavedRef.current?.();
+          }}
+          onArchived={() => {
+            setShowRefreshModal(false);
+            onSavedRef.current?.();
+          }}
+        />
+      )}
     </>
   );
 }
