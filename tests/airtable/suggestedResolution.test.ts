@@ -57,6 +57,15 @@ describe('suggestedResolution', () => {
     expect(parseSuggestedResolutionPatchInput(null)).toEqual({ ok: true, value: null });
   });
 
+  it('PATCH parser accepts resolved_by_user marker', () => {
+    const marker = {
+      status: 'resolved_by_user' as const,
+      resolvedAt: '2026-05-01T12:00:00.000Z',
+      prevAction: 'close',
+    };
+    expect(parseSuggestedResolutionPatchInput(marker)).toEqual({ ok: true, value: marker });
+  });
+
   it('parses update_full from Airtable JSON', () => {
     const raw = JSON.stringify({
       action: 'update_full',

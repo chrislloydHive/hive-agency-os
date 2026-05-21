@@ -9,6 +9,7 @@ import { z } from 'zod';
 import {
   getTasks,
   updateTask,
+  isActiveSuggestedResolution,
   suggestedResolutionStoredSchema,
   type SuggestedResolution,
   type TaskRecord,
@@ -134,7 +135,7 @@ function pickCandidates(tasks: TaskRecord[]): TaskRecord[] {
       !t.dismissedAt &&
       t.threadUrl &&
       isLikelyMailGoogleThreadUrl(t.threadUrl) &&
-      !t.suggestedResolution &&
+      !isActiveSuggestedResolution(t.suggestedResolution) &&
       lastModifiedAtLeast30MinutesAgo(t.lastModified),
   );
 }

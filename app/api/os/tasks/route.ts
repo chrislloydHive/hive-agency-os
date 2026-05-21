@@ -8,10 +8,9 @@ import {
   updateTask,
   deleteTask,
   parseRecurrenceFromRequestBody,
-  parseSuggestedResolutionPatchInput,
-  sanitizeTaskUpdateFromJsonBody,
   WAITING_ON_TYPES,
 } from '@/lib/airtable/tasks';
+import { parseTaskPatchFromHttpBody } from '@/lib/airtable/parseTaskPatchFromHttpBody';
 import type { TaskView, TaskStatus, TaskRecord } from '@/lib/airtable/tasks';
 
 export const dynamic = 'force-dynamic';
@@ -237,25 +236,11 @@ export async function PATCH(request: NextRequest) {
 
     const { id, ...fields } = body as { id: string } & Record<string, unknown>;
     const fieldsRec = fields as Record<string, unknown>;
-    const bodyRec = parseRecurrenceFromRequestBody(fieldsRec);
-    if (!bodyRec.ok) {
-      return NextResponse.json({ error: bodyRec.error }, { status: 400 });
+    const parsed = parseTaskPatchFromHttpBody(fieldsRec);
+    if (!parsed.ok) {
+      return NextResponse.json({ error: parsed.error }, { status: 400 });
     }
-    const patch = sanitizeTaskUpdateFromJsonBody(fieldsRec);
-    if (bodyRec.present) {
-      patch.recurrence = bodyRec.value;
-    } else {
-      delete patch.recurrence;
-    }
-    if (Object.prototype.hasOwnProperty.call(fieldsRec, 'suggestedResolution')) {
-      const sr = parseSuggestedResolutionPatchInput(fieldsRec.suggestedResolution);
-      if (!sr.ok) {
-        return NextResponse.json({ error: sr.error }, { status: 400 });
-      }
-      patch.suggestedResolution = sr.value;
-    } else {
-      delete patch.suggestedResolution;
-    }
+    const patch = parsed.patch;
 
     const blockedByValidation = validateBlockedBy(fieldsRec, id);
     if (blockedByValidation) return blockedByValidation;

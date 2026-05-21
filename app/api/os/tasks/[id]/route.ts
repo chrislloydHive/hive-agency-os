@@ -2,14 +2,8 @@
 // Per-task GET + PATCH. Thin wrappers around lib/airtable/tasks.
 
 import { NextRequest, NextResponse } from 'next/server';
-import {
-  getTasks,
-  updateTask,
-  parseRecurrenceFromRequestBody,
-  parseSuggestedResolutionPatchInput,
-  sanitizeTaskUpdateFromJsonBody,
-  WAITING_ON_TYPES,
-} from '@/lib/airtable/tasks';
+import { getTasks, updateTask, WAITING_ON_TYPES } from '@/lib/airtable/tasks';
+import { parseTaskPatchFromHttpBody } from '@/lib/airtable/parseTaskPatchFromHttpBody';
 import type { TaskRecord } from '@/lib/airtable/tasks';
 
 export const dynamic = 'force-dynamic';
@@ -83,25 +77,11 @@ export async function PATCH(request: NextRequest, ctx: { params: Promise<{ id: s
     const { id } = await ctx.params;
     if (!id) return NextResponse.json({ error: 'id required' }, { status: 400 });
     const body = (await request.json()) as Record<string, unknown>;
-    const bodyRec = parseRecurrenceFromRequestBody(body);
-    if (!bodyRec.ok) {
-      return NextResponse.json({ error: bodyRec.error }, { status: 400 });
+    const parsed = parseTaskPatchFromHttpBody(body);
+    if (!parsed.ok) {
+      return NextResponse.json({ error: parsed.error }, { status: 400 });
     }
-    const patch = sanitizeTaskUpdateFromJsonBody(body);
-    if (bodyRec.present) {
-      patch.recurrence = bodyRec.value;
-    } else {
-      delete patch.recurrence;
-    }
-    if (Object.prototype.hasOwnProperty.call(body, 'suggestedResolution')) {
-      const sr = parseSuggestedResolutionPatchInput(body.suggestedResolution);
-      if (!sr.ok) {
-        return NextResponse.json({ error: sr.error }, { status: 400 });
-      }
-      patch.suggestedResolution = sr.value;
-    } else {
-      delete patch.suggestedResolution;
-    }
+    const patch = parsed.patch;
 
     // Validate blockedBy
     if (Object.prototype.hasOwnProperty.call(body, 'blockedBy')) {

@@ -206,6 +206,19 @@ const suggestedResolutionUnblockedSchema = z
   })
   .strict();
 
+/** Written when the user resolves a suggestion; hidden from GET as inactive. */
+const suggestedResolutionResolvedByUserSchema = z
+  .object({
+    status: z.literal('resolved_by_user'),
+    resolvedAt: z.string().min(1),
+    prevAction: z.string().optional(),
+  })
+  .strict();
+
+export type SuggestedResolutionResolvedByUser = z.infer<
+  typeof suggestedResolutionResolvedByUserSchema
+>;
+
 /** Stored in Airtable "Suggested Resolution" and returned on GET /tasks. */
 export type SuggestedResolution =
   | z.infer<typeof suggestedResolutionCloseSchema>
@@ -214,7 +227,17 @@ export type SuggestedResolution =
   | z.infer<typeof suggestedResolutionUpdateFullSchema>
   | z.infer<typeof suggestedResolutionAddBlockerSchema>
   | z.infer<typeof suggestedResolutionSetWaitingOnSchema>
-  | z.infer<typeof suggestedResolutionUnblockedSchema>;
+  | z.infer<typeof suggestedResolutionUnblockedSchema>
+  | SuggestedResolutionResolvedByUser;
+
+/** True when the task should show an AI suggestion card in the UI. */
+export function isActiveSuggestedResolution(
+  sr: SuggestedResolution | null | undefined,
+): boolean {
+  if (!sr) return false;
+  if ('status' in sr && sr.status === 'resolved_by_user') return false;
+  return true;
+}
 
 export const suggestedResolutionStoredSchema = z.discriminatedUnion('action', [
   suggestedResolutionCloseSchema,
@@ -234,6 +257,8 @@ export function parseSuggestedResolutionFromAirtable(raw: unknown): SuggestedRes
   if (!t) return null;
   try {
     const obj = JSON.parse(t) as unknown;
+    const resolved = suggestedResolutionResolvedByUserSchema.safeParse(obj);
+    if (resolved.success) return resolved.data;
     const r = suggestedResolutionStoredSchema.safeParse(obj);
     return r.success ? r.data : null;
   } catch {
@@ -251,6 +276,8 @@ export function parseSuggestedResolutionPatchInput(
   if (typeof v !== 'object' || Array.isArray(v)) {
     return { ok: false, error: 'suggestedResolution must be null or an object' };
   }
+  const resolved = suggestedResolutionResolvedByUserSchema.safeParse(v);
+  if (resolved.success) return { ok: true, value: resolved.data };
   const r = suggestedResolutionStoredSchema.safeParse(v);
   if (!r.success) {
     const flat = r.error.flatten();
@@ -258,6 +285,89 @@ export function parseSuggestedResolutionPatchInput(
     return { ok: false, error: detail || 'Invalid suggestedResolution' };
   }
   return { ok: true, value: r.data };
+}
+
+function dismissedFingerprintForSuggestion(sr: SuggestedResolution): DismissedSuggestion {
+  const action = 'action' in sr ? sr.action : 'unknown';
+  const candidateTaskId =
+    action === 'add_blocker'
+      ? (sr as z.infer<typeof suggestedResolutionAddBlockerSchema>).candidateTaskId
+      : action === 'unblocked'
+        ? (sr as z.infer<typeof suggestedResolutionUnblockedSchema>).byTaskId
+        : undefined;
+  return {
+    action,
+    ...(candidateTaskId ? { candidateTaskId } : {}),
+    dismissedAt: new Date().toISOString(),
+  };
+}
+
+function appendDismissedSuggestion(
+  existing: DismissedSuggestion[],
+  sr: SuggestedResolution,
+): DismissedSuggestion[] {
+  const entry = dismissedFingerprintForSuggestion(sr);
+  const dup = existing.some(
+    (d) =>
+      d.action === entry.action &&
+      d.candidateTaskId === entry.candidateTaskId &&
+      d.dismissedAt === entry.dismissedAt,
+  );
+  if (dup) return existing;
+  return [...existing, entry];
+}
+
+function patchImpliesSuggestionResolve(input: UpdateTaskInput): boolean {
+  if (input.done === true) return true;
+  if (input.status === 'Done' || input.status === 'Next') return true;
+  if (Object.prototype.hasOwnProperty.call(input, 'nextAction')) return true;
+  if (Object.prototype.hasOwnProperty.call(input, 'blockedBy')) return true;
+  if (Object.prototype.hasOwnProperty.call(input, 'waitingOnType')) return true;
+  if (Object.prototype.hasOwnProperty.call(input, 'waitingOnDescription')) return true;
+  if (Object.prototype.hasOwnProperty.call(input, 'waitingUntil')) return true;
+  return false;
+}
+
+function buildResolvedByUserMarker(
+  sr: SuggestedResolution,
+): SuggestedResolutionResolvedByUser {
+  return {
+    status: 'resolved_by_user',
+    resolvedAt: new Date().toISOString(),
+    prevAction: 'action' in sr ? sr.action : undefined,
+  };
+}
+
+/**
+ * When the user resolves a suggestion, persist a suppression marker and dismissed
+ * fingerprint so sync/auto-resolve do not immediately re-suggest the same action.
+ * Also infers a clear when resolution fields are sent without `suggestedResolution`
+ * (e.g. proxies that omit null keys).
+ */
+export function enrichTaskUpdateForSuggestionResolution(
+  current: TaskRecord,
+  input: UpdateTaskInput,
+  rawSuggestedResolution: SuggestedResolution | null,
+): UpdateTaskInput {
+  const out: UpdateTaskInput = { ...input };
+  const activeRaw = isActiveSuggestedResolution(rawSuggestedResolution);
+  if (!activeRaw || !rawSuggestedResolution) return out;
+
+  const explicitClear = Object.prototype.hasOwnProperty.call(input, 'suggestedResolution');
+  const shouldResolve =
+    (explicitClear && input.suggestedResolution === null) ||
+    (!explicitClear && patchImpliesSuggestionResolve(input));
+
+  if (!shouldResolve) return out;
+
+  out.suggestedResolution = buildResolvedByUserMarker(rawSuggestedResolution);
+  if (!Object.prototype.hasOwnProperty.call(input, 'dismissedSuggestions')) {
+    out.dismissedSuggestions = appendDismissedSuggestion(
+      current.dismissedSuggestions,
+      rawSuggestedResolution,
+    );
+  }
+  return out;
 }
 
 /**
@@ -320,6 +430,7 @@ export const TASK_HTTP_PATCH_KEYS = [
   'waitingOnType',
   'waitingOnDescription',
   'waitingUntil',
+  'dismissedSuggestions',
 ] as const satisfies readonly (keyof UpdateTaskInput)[];
 
 /** Allow-listed patch fields from a client JSON body (excludes `recurrence`). */
@@ -522,7 +633,10 @@ function mapRecordToTask(record: any): TaskRecord {
     lastSeenAt: f[TASK_FIELDS.LAST_SEEN_AT] || null,
     latestInboundAt: f[TASK_FIELDS.LATEST_INBOUND_AT] || null,
     recurrence: normalizeRecurrenceFromAirtable(f[TASK_FIELDS.RECURRENCE]),
-    suggestedResolution: parseSuggestedResolutionFromAirtable(f[TASK_FIELDS.SUGGESTED_RESOLUTION]),
+    suggestedResolution: (() => {
+      const sr = parseSuggestedResolutionFromAirtable(f[TASK_FIELDS.SUGGESTED_RESOLUTION]);
+      return isActiveSuggestedResolution(sr) ? sr : null;
+    })(),
     lastSyncedAt: (f[TASK_FIELDS.LAST_SYNCED_AT] as string) || null,
     threadRefreshMessageId: (f[TASK_FIELDS.THREAD_REFRESH_MESSAGE_ID] as string) || null,
     blockedBy: parseJsonArrayFromAirtable(f[TASK_FIELDS.BLOCKED_BY]),
@@ -645,6 +759,14 @@ export function mergeTaskUpdateWithArchiveRules(
 }
 
 async function fetchTaskByRecordId(recordId: string): Promise<TaskRecord> {
+  const { task } = await fetchTaskWithRawSuggestedResolution(recordId);
+  return task;
+}
+
+async function fetchTaskWithRawSuggestedResolution(recordId: string): Promise<{
+  task: TaskRecord;
+  rawSuggestedResolution: SuggestedResolution | null;
+}> {
   const baseId = tasksBaseIdOrThrow();
   const tableId = getTasksTableIdentifier();
   const url = `https://api.airtable.com/v0/${baseId}/${encodeURIComponent(tableId)}/${recordId}`;
@@ -654,7 +776,11 @@ async function fetchTaskByRecordId(recordId: string): Promise<TaskRecord> {
     throw new Error(`Airtable API error fetching task (${response.status}): ${errorText}`);
   }
   const record = await response.json();
-  return mapRecordToTask(record);
+  const f = record.fields || {};
+  return {
+    task: mapRecordToTask(record),
+    rawSuggestedResolution: parseSuggestedResolutionFromAirtable(f[TASK_FIELDS.SUGGESTED_RESOLUTION]),
+  };
 }
 
 function mapInputToFields(input: CreateTaskInput | UpdateTaskInput): Record<string, unknown> {
@@ -708,8 +834,9 @@ function mapInputToFields(input: CreateTaskInput | UpdateTaskInput): Record<stri
   if (Object.prototype.hasOwnProperty.call(input, 'waitingOnType')) {
     fields[TASK_FIELDS.WAITING_ON_TYPE] = (input as UpdateTaskInput).waitingOnType || null;
   }
-  if ('waitingOnDescription' in input) {
-    fields[TASK_FIELDS.WAITING_ON_DESCRIPTION] = (input as UpdateTaskInput).waitingOnDescription || '';
+  if (Object.prototype.hasOwnProperty.call(input, 'waitingOnDescription')) {
+    const desc = (input as UpdateTaskInput).waitingOnDescription;
+    fields[TASK_FIELDS.WAITING_ON_DESCRIPTION] = desc == null || desc === '' ? '' : desc;
   }
   if (Object.prototype.hasOwnProperty.call(input, 'waitingUntil')) {
     fields[TASK_FIELDS.WAITING_UNTIL] = (input as UpdateTaskInput).waitingUntil || null;
@@ -966,13 +1093,19 @@ export async function createTask(input: CreateTaskInput): Promise<TaskRecord> {
 export async function updateTask(recordId: string, input: UpdateTaskInput): Promise<TaskRecord> {
   const baseId = tasksBaseIdOrThrow();
   const tableId = getTasksTableIdentifier();
-  const current = await fetchTaskByRecordId(recordId);
-  const mergedInput = mergeTaskUpdateWithArchiveRules(current, input);
+  const { task: current, rawSuggestedResolution } = await fetchTaskWithRawSuggestedResolution(recordId);
+  const enriched = enrichTaskUpdateForSuggestionResolution(current, input, rawSuggestedResolution);
+  const mergedInput = mergeTaskUpdateWithArchiveRules(current, enriched);
   const fields = mapInputToFields(mergedInput);
 
   if (TASK_FIELDS.BLOCKED_BY in fields) {
     const v = fields[TASK_FIELDS.BLOCKED_BY];
     console.log(`blockedBy-write: taskId=${recordId} raw=${typeof v} value=${JSON.stringify(v)}`);
+  }
+  if (TASK_FIELDS.SUGGESTED_RESOLUTION in fields) {
+    console.log(
+      `suggestedResolution-write: taskId=${recordId} value=${JSON.stringify(fields[TASK_FIELDS.SUGGESTED_RESOLUTION])}`,
+    );
   }
 
   const url = `https://api.airtable.com/v0/${baseId}/${encodeURIComponent(tableId)}/${recordId}`;
