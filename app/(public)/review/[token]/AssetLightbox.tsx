@@ -20,6 +20,7 @@ import {
   isPortalFfmpegTranscodeEnabled,
   transcodeReviewVideoToPlayableH264,
 } from '@/lib/review/client/transcodeForPortalPreview';
+import { REVIEW_APPROVE_BUTTON_CLASS, REVIEW_APPROVED_INDICATOR_CLASS } from './reviewAssetUtils';
 import MuxPlayer from '@mux/mux-player-react';
 import { parseMuxAspectDimensions } from '@/lib/review/muxThumbnail';
 
@@ -746,14 +747,23 @@ export default function AssetLightbox({
                 </svg>
               </a>
             )}
-            <button
-              type="button"
-              onClick={handleApprove}
-              disabled={approving || asset.assetApprovedClient}
-              className="rounded-md bg-emerald-600 px-3 py-1.5 text-xs font-medium text-white transition-colors hover:bg-emerald-500 disabled:opacity-50 disabled:cursor-not-allowed"
-            >
-              {approving ? 'Approving…' : asset.assetApprovedClient ? 'Approved' : 'Approve'}
-            </button>
+            {asset.assetApprovedClient ? (
+              <span className={`${REVIEW_APPROVED_INDICATOR_CLASS} px-3 py-1.5 text-xs`}>
+                <svg className="h-3.5 w-3.5 shrink-0" fill="currentColor" viewBox="0 0 20 20" aria-hidden>
+                  <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
+                </svg>
+                Approved
+              </span>
+            ) : (
+              <button
+                type="button"
+                onClick={handleApprove}
+                disabled={approving}
+                className={`${REVIEW_APPROVE_BUTTON_CLASS} px-3 py-1.5 text-xs`}
+              >
+                {approving ? 'Approving…' : 'Approve'}
+              </button>
+            )}
             <a
               href={`${buildReviewFileProxyUrl(asset.fileId, token, { crasRecordId: asset.airtableRecordId })}&dl=1`}
               download={asset.name}

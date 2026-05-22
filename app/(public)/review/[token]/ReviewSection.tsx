@@ -17,7 +17,13 @@ import {
 import { muxPlaybackReadyForThumbnail } from '@/lib/review/muxThumbnail';
 import GridMuxPoster from './GridMuxPoster';
 import { ReviewAudioPlayer } from './ReviewAudioPlayer';
-import { getSectionCounts, isAssetNew } from './reviewAssetUtils';
+import {
+  getSectionCounts,
+  isAssetNew,
+  REVIEW_APPROVE_BUTTON_CLASS,
+  REVIEW_APPROVED_BADGE_CLASS,
+  REVIEW_APPROVED_INDICATOR_CLASS,
+} from './reviewAssetUtils';
 import type { ReviewState } from './ReviewPortalClient';
 
 // ============================================================================
@@ -853,10 +859,10 @@ export default function ReviewSection({
               type="button"
               onClick={handleGroupApprove}
               disabled={shouldDisableApproveButton}
-              className={`shrink-0 rounded-md px-4 py-2 text-sm font-medium transition-colors ${
+              className={`shrink-0 px-4 py-2 text-sm transition-colors ${
                 shouldDisableApproveButton
-                  ? 'border border-gray-700 bg-gray-800/40 text-gray-500 cursor-not-allowed'
-                  : 'bg-emerald-600 text-white hover:bg-emerald-700'
+                  ? 'rounded-md border border-gray-700 bg-gray-800/40 font-medium text-gray-500 cursor-not-allowed'
+                  : REVIEW_APPROVE_BUTTON_CLASS
               }`}
               title={
                 shouldDisableApproveButton
@@ -1150,8 +1156,8 @@ function PlacementGroupCard({
           className={`flex min-w-0 flex-wrap items-center gap-2 ${isMultiAsset || isCarousel ? 'mt-1' : ''}`}
         >
           {allApproved ? (
-            <span className="flex items-center gap-1 text-sm font-medium text-emerald-400">
-              <svg className="h-4 w-4" fill="currentColor" viewBox="0 0 20 20">
+            <span className={`${REVIEW_APPROVED_INDICATOR_CLASS} px-2 py-0.5 text-sm`}>
+              <svg className="h-4 w-4 shrink-0" fill="currentColor" viewBox="0 0 20 20" aria-hidden>
                 <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
               </svg>
               Approved
@@ -1379,7 +1385,7 @@ function PlacementGroupCard({
             type="button"
             onClick={handleApprovePlacement}
             disabled={isApproving || pendingCount === 0}
-            className={`rounded-md bg-emerald-600 font-medium text-white transition-colors hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-50 ${
+            className={`${REVIEW_APPROVE_BUTTON_CLASS} ${
               isMultiAsset ? 'px-4 py-2 text-sm' : 'px-3 py-1.5 text-xs'
             }`}
           >
@@ -1389,8 +1395,8 @@ function PlacementGroupCard({
 
         {/* Approved indicator */}
         {allApproved && (
-          <span className={`flex items-center gap-1.5 font-medium text-emerald-400 ${isMultiAsset ? 'text-sm' : 'text-xs'}`}>
-            <svg className={isMultiAsset ? 'h-5 w-5' : 'h-4 w-4'} fill="currentColor" viewBox="0 0 20 20">
+          <span className={`${REVIEW_APPROVED_INDICATOR_CLASS} ${isMultiAsset ? 'px-3 py-1.5 text-sm' : 'px-2.5 py-1 text-xs'}`}>
+            <svg className={`shrink-0 ${isMultiAsset ? 'h-5 w-5' : 'h-4 w-4'}`} fill="currentColor" viewBox="0 0 20 20" aria-hidden>
               <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
             </svg>
             Approved
@@ -1447,7 +1453,7 @@ function statusBadgeLabel(state: ReviewState | undefined): string {
 function statusBadgeClass(state: ReviewState | undefined): string {
   if (!state || state === 'new') return 'bg-amber-500 text-white font-semibold shadow-lg shadow-amber-500/50 border border-amber-400';
   if (state === 'seen') return 'bg-blue-900/60 text-blue-200';
-  if (state === 'approved') return 'bg-emerald-600 text-white font-semibold shadow-lg shadow-emerald-600/50 border border-emerald-400';
+  if (state === 'approved') return REVIEW_APPROVED_BADGE_CLASS;
   if (state === 'needs_changes') return 'bg-amber-900/60 text-amber-200';
   return 'bg-gray-700 text-gray-300';
 }
