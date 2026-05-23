@@ -8,11 +8,25 @@
 // - If variant has 0 total files: single empty-state card, no per-tactic list
 // - If variant has files: show tactics with files; hide empty tactics behind toggle
 
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, Suspense } from 'react';
+import { useRouter, useSearchParams, usePathname } from 'next/navigation';
 import HiveLogo from '@/components/HiveLogo';
 import ReviewSection from './ReviewSection';
 import { AuthorIdentityProvider, useAuthorIdentity } from './AuthorIdentityContext';
 import { mergeReviewSections } from '@/lib/review/mergeReviewSections';
+import {
+  formatPendingTypeBreakdown,
+  getPortalApprovalStats,
+  isAssetPending,
+} from './reviewAssetUtils';
+import {
+  AllCaughtUpEmptyState,
+  CampaignTypeApprovalProgress,
+  CampaignTypeFilterChips,
+  PendingReviewBanner,
+  ReviewQueueFilterBar,
+  type AssetListFilter,
+} from './ReviewPortalApprovalUI';
 
 const DEBOUNCE_MS = 800;
 
@@ -112,7 +126,9 @@ interface ReviewPortalClientProps {
 export default function ReviewPortalClient(props: ReviewPortalClientProps) {
   return (
     <AuthorIdentityProvider>
-      <ReviewPortalClientInner {...props} />
+      <Suspense fallback={null}>
+        <ReviewPortalClientInner {...props} />
+      </Suspense>
     </AuthorIdentityProvider>
   );
 }
@@ -228,6 +244,16 @@ function ReviewPortalClientInner({
   token,
   variants,
 }: ReviewPortalClientProps) {
+  const router = useRouter();
+  const pathname = usePathname();
+  const searchParams = useSearchParams();
+  const filterParam = searchParams.get('filter');
+  const variantParam = searchParams.get('variant');
+  const isQueueView = filterParam === 'pending' || filterParam === 'all';
+  const assetListFilter: AssetListFilter = filterParam === 'all' ? 'all' : 'pending';
+  const chipVariantFilter =
+    isQueueView && variantParam && variants.includes(variantParam) ? variantParam : null;
+
   const [activeVariant, setActiveVariant] = useState(variants[0]);
   const [showEmptyTactics, setShowEmptyTactics] = useState(false);
   const [sections, setSections] = useState<TacticSectionData[]>(initialSections);
@@ -247,6 +273,67 @@ function ReviewPortalClientInner({
   const lastFetchedTokenRef = useRef<string | null>(null);
   const firstSeenInFlightRef = useRef<Set<string>>(new Set());
   const { identity, clearIdentity, requireIdentity } = useAuthorIdentity();
+
+  const portalStats = useMemo(
+    () => getPortalApprovalStats(sections, variants),
+    [sections, variants]
+  );
+  const typeBreakdown = useMemo(
+    () => formatPendingTypeBreakdown(portalStats.byVariant),
+    [portalStats.byVariant]
+  );
+
+  const updateReviewUrl = useCallback(
+    (updates: { filter?: AssetListFilter | null; variant?: string | null }) => {
+      const params = new URLSearchParams(searchParams.toString());
+      if (updates.filter === null) {
+        params.delete('filter');
+        params.delete('variant');
+      } else if (updates.filter !== undefined) {
+        params.set('filter', updates.filter);
+        if (updates.filter === 'all' || updates.filter === 'pending') {
+          // keep variant param unless explicitly cleared
+        }
+      }
+      if (updates.variant === null) {
+        params.delete('variant');
+      } else if (updates.variant !== undefined) {
+        params.set('variant', updates.variant);
+      }
+      const qs = params.toString();
+      router.replace(qs ? `${pathname}?${qs}` : pathname, { scroll: false });
+    },
+    [router, pathname, searchParams]
+  );
+
+  const enterReviewQueue = useCallback(() => {
+    // TODO: analytics — track banner "Review pending" click
+    updateReviewUrl({ filter: 'pending', variant: null });
+  }, [updateReviewUrl]);
+
+  const setQueueFilter = useCallback(
+    (filter: AssetListFilter) => {
+      updateReviewUrl({ filter });
+    },
+    [updateReviewUrl]
+  );
+
+  const setChipVariant = useCallback(
+    (variant: string | null) => {
+      updateReviewUrl({ filter: assetListFilter, variant: variant ?? null });
+    },
+    [updateReviewUrl, assetListFilter]
+  );
+
+  const selectCampaignTypeCard = useCallback(
+    (variant: string) => {
+      setActiveVariant(variant);
+      if (isQueueView) {
+        updateReviewUrl({ filter: null, variant: null });
+      }
+    },
+    [isQueueView, updateReviewUrl]
+  );
 
   const updateAssetReviewState = useCallback(
     (variant: string, tactic: string, fileId: string, reviewState: ReviewState) => {
@@ -380,11 +467,19 @@ function ReviewPortalClientInner({
     return () => clearTimeout(t);
   }, [toast]);
 
-  // Reset showEmptyTactics and clear selection when switching variants
+  // Reset showEmptyTactics and clear selection when switching variants (single-type view only)
   useEffect(() => {
+    if (isQueueView) return;
     setShowEmptyTactics(false);
     setSelectedFileIds(new Set());
-  }, [activeVariant]);
+  }, [activeVariant, isQueueView]);
+
+  useEffect(() => {
+    if (isQueueView) {
+      setShowEmptyTactics(false);
+      setSelectedFileIds(new Set());
+    }
+  }, [isQueueView, chipVariantFilter, assetListFilter]);
 
   // Partner tab filter: New = approved && !downloaded && (approved after lastSeen or lastSeen null); All Approved; Downloaded
   const partnerLastSeenAt = deliveryContext?.partnerLastSeenAt ?? null;
@@ -427,27 +522,86 @@ function ReviewPortalClientInner({
     [isNewlyApproved, isPartnerDownloaded]
   );
 
-  // Filter sections by active variant (declared before callbacks that use them)
-  const activeSections = sections.filter((s) => s.variant === activeVariant);
-  const partnerFilteredSections =
-    deliveryContext != null
-      ? partnerFilterSections(activeSections, activePartnerTab)
-      : activeSections;
+  const chipStatsSections = useMemo(() => {
+    if (deliveryContext == null) return sections;
+    return partnerFilterSections(sections, activePartnerTab);
+  }, [sections, deliveryContext, activePartnerTab, partnerFilterSections]);
 
-  // "Needs Review" filter: hide approved assets when toggled on
+  const scopedSectionsForQueue = useMemo(() => {
+    let secs = sections;
+    if (deliveryContext != null) {
+      secs = partnerFilterSections(secs, activePartnerTab);
+    }
+    if (chipVariantFilter) {
+      secs = secs.filter((s) => s.variant === chipVariantFilter);
+    }
+    return secs;
+  }, [sections, deliveryContext, activePartnerTab, chipVariantFilter, partnerFilterSections]);
+
+  const queuePendingCount = useMemo(
+    () => scopedSectionsForQueue.flatMap((s) => s.assets).filter(isAssetPending).length,
+    [scopedSectionsForQueue]
+  );
+
+  const queueTotalCount = useMemo(
+    () => scopedSectionsForQueue.reduce((sum, s) => sum + s.fileCount, 0),
+    [scopedSectionsForQueue]
+  );
+
+  const caughtUpStats = useMemo(
+    () => getPortalApprovalStats(chipStatsSections, variants),
+    [chipStatsSections, variants]
+  );
+
+  // Filter sections by view mode
+  const baseSectionsForView = useMemo(() => {
+    if (isQueueView) {
+      return scopedSectionsForQueue;
+    }
+    let secs = sections.filter((s) => s.variant === activeVariant);
+    if (deliveryContext != null) {
+      secs = partnerFilterSections(secs, activePartnerTab);
+    }
+    return secs;
+  }, [
+    isQueueView,
+    scopedSectionsForQueue,
+    sections,
+    activeVariant,
+    deliveryContext,
+    activePartnerTab,
+    partnerFilterSections,
+  ]);
+
+  const chipVariantStats = useMemo(
+    () => getPortalApprovalStats(chipStatsSections, variants).byVariant,
+    [chipStatsSections, variants]
+  );
+
+  // Approval / pending filter for display
   const displaySections = useMemo(() => {
-    if (!hideApproved) return partnerFilteredSections;
-    return partnerFilteredSections.map((sec) => {
-      const filtered = sec.assets.filter((a) => !a.assetApprovedClient);
+    const applyPendingFilter = isQueueView
+      ? assetListFilter === 'pending'
+      : hideApproved;
+    if (!applyPendingFilter) return baseSectionsForView;
+    return baseSectionsForView.map((sec) => {
+      const filtered = sec.assets.filter(isAssetPending);
       return { ...sec, assets: filtered, fileCount: filtered.length };
     });
-  }, [partnerFilteredSections, hideApproved]);
+  }, [baseSectionsForView, isQueueView, assetListFilter, hideApproved]);
+
+  const activeSections = isQueueView
+    ? scopedSectionsForQueue
+    : sections.filter((s) => s.variant === activeVariant);
 
   const totalFiles = displaySections.reduce((sum, s) => sum + s.fileCount, 0);
   const totalApprovedInVariant = activeSections.reduce(
-    (sum, s) => sum + s.assets.filter((a) => a.assetApprovedClient).length, 0
+    (sum, s) => sum + s.assets.filter((a) => a.assetApprovedClient).length,
+    0
   );
   const totalInVariant = activeSections.reduce((sum, s) => sum + s.fileCount, 0);
+  const showAllCaughtUp =
+    isQueueView && assetListFilter === 'pending' && queuePendingCount === 0;
   const sectionsToRender =
     totalFiles === 0
       ? []
@@ -767,63 +921,90 @@ function ReviewPortalClientInner({
           </div>
         )}
 
-        {/* Variant Tabs: prominent pill-style tabs for Prospecting/Retargeting */}
+        {/* Pending review banner (landing view only) */}
+        {!isQueueView && portalStats.totalPending > 0 && (
+          <PendingReviewBanner
+            totalPending={portalStats.totalPending}
+            typeBreakdown={typeBreakdown}
+            onReviewPending={enterReviewQueue}
+          />
+        )}
+
+        {/* Campaign type picker or review queue filters */}
+        {isQueueView ? (
+          <div className="mb-8">
+            <ReviewQueueFilterBar
+              filter={assetListFilter}
+              pendingCount={queuePendingCount}
+              totalCount={queueTotalCount}
+              onSetFilter={setQueueFilter}
+            />
+            <CampaignTypeFilterChips
+              byVariant={chipVariantStats}
+              activeVariant={chipVariantFilter}
+              onSelectVariant={setChipVariant}
+            />
+          </div>
+        ) : (
         <div className="mb-8">
           <p className="mb-3 text-sm font-medium uppercase tracking-wider text-gray-500">
-            Select Campaign Type
+            Select campaign type
           </p>
           <div className="flex flex-wrap gap-3">
             {variants.map((variant) => {
+              const stats = portalStats.byVariant.find((v) => v.variant === variant) ?? {
+                variant,
+                total: 0,
+                approved: 0,
+                pending: 0,
+              };
               const isActive = variant === activeVariant;
-              const variantSections = sections.filter((s) => s.variant === variant);
-              const totalAssets = variantSections.reduce((sum, s) => sum + s.fileCount, 0);
-              const approvedInVariant = variantSections.reduce(
-                (sum, s) => sum + s.assets.filter((a) => a.assetApprovedClient).length,
-                0
-              );
 
               return (
                 <button
                   key={variant}
-                  onClick={() => setActiveVariant(variant)}
-                  className={`group relative flex items-center gap-3 rounded-xl px-5 py-4 text-left transition-all ${
+                  type="button"
+                  onClick={() => selectCampaignTypeCard(variant)}
+                  className={`group relative flex min-w-[min(100%,16rem)] flex-1 flex-col items-stretch rounded-xl px-5 py-4 text-left transition-all sm:max-w-md ${
                     isActive
                       ? 'bg-amber-500/20 ring-2 ring-amber-500 ring-offset-2 ring-offset-gray-900'
                       : 'bg-gray-800/80 hover:bg-gray-700/80 ring-1 ring-gray-700'
                   }`}
                 >
-                  {/* Icon */}
-                  <div className={`flex h-10 w-10 items-center justify-center rounded-lg ${
-                    isActive ? 'bg-amber-500/30' : 'bg-gray-700'
-                  }`}>
-                    {variant === 'Prospecting' ? (
-                      <svg className={`h-5 w-5 ${isActive ? 'text-amber-400' : 'text-gray-400'}`} fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
-                      </svg>
-                    ) : (
-                      <svg className={`h-5 w-5 ${isActive ? 'text-amber-400' : 'text-gray-400'}`} fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
-                      </svg>
-                    )}
-                  </div>
-                  {/* Text */}
-                  <div>
-                    <p className={`text-lg font-semibold ${isActive ? 'text-white' : 'text-gray-200'}`}>
+                  <div className="flex items-center gap-3">
+                    <div
+                      className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-lg ${
+                        isActive ? 'bg-amber-500/30' : 'bg-gray-700'
+                      }`}
+                    >
+                      {variant === 'Prospecting' ? (
+                        <svg className={`h-5 w-5 ${isActive ? 'text-amber-400' : 'text-gray-400'}`} fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+                        </svg>
+                      ) : (
+                        <svg className={`h-5 w-5 ${isActive ? 'text-amber-400' : 'text-gray-400'}`} fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                        </svg>
+                      )}
+                    </div>
+                    <p className={`min-w-0 flex-1 text-lg font-semibold ${isActive ? 'text-white' : 'text-gray-200'}`}>
                       {variant}
                     </p>
-                    <p className={`text-sm ${isActive ? 'text-amber-300/80' : 'text-gray-500'}`}>
-                      {totalAssets} assets · {approvedInVariant} approved
-                    </p>
+                    {isActive && (
+                      <div className="absolute -right-1 -top-1 h-3 w-3 rounded-full bg-amber-500" />
+                    )}
                   </div>
-                  {/* Active indicator */}
-                  {isActive && (
-                    <div className="absolute -right-1 -top-1 h-3 w-3 rounded-full bg-amber-500" />
-                  )}
+                  <CampaignTypeApprovalProgress
+                    approved={stats.approved}
+                    total={stats.total}
+                    pending={stats.pending}
+                  />
                 </button>
               );
             })}
           </div>
         </div>
+        )}
 
         {/* Action bar when 1+ selected */}
         {selectedCount > 0 && (
@@ -846,8 +1027,8 @@ function ReviewPortalClientInner({
           </div>
         )}
 
-        {/* Filter: Needs Review toggle */}
-        {totalInVariant > 0 && totalApprovedInVariant > 0 && (
+        {/* Filter: Needs Review toggle (single campaign type view only) */}
+        {!isQueueView && totalInVariant > 0 && totalApprovedInVariant > 0 && (
           <div className="mb-4 flex items-center gap-3">
             <button
               type="button"
@@ -872,12 +1053,18 @@ function ReviewPortalClientInner({
         )}
 
         {/* Content: empty-state card or tactic sections */}
-        {totalFiles === 0 ? (
+        {showAllCaughtUp ? (
+          <AllCaughtUpEmptyState
+            totalApproved={caughtUpStats.totalApproved}
+            totalCount={caughtUpStats.totalCount}
+            onViewAll={() => setQueueFilter('all')}
+          />
+        ) : totalFiles === 0 ? (
           <EmptyStateCard
-            variant={activeVariant}
+            variant={isQueueView ? (chipVariantFilter ?? variants[0]) : activeVariant}
             token={token}
             initialComments={
-              reviewData[`${activeVariant}:General`]?.comments ?? ''
+              reviewData[`${isQueueView ? chipVariantFilter ?? variants[0] : activeVariant}:General`]?.comments ?? ''
             }
           />
         ) : (

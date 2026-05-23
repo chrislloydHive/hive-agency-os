@@ -43,6 +43,60 @@ export const REVIEW_APPROVED_INDICATOR_CLASS =
 export const REVIEW_APPROVED_BADGE_CLASS =
   'border border-emerald-500/40 bg-emerald-950/60 text-emerald-300 font-semibold';
 
+export function isAssetPending(asset: { assetApprovedClient?: boolean }): boolean {
+  return !asset.assetApprovedClient;
+}
+
+export interface VariantApprovalStats {
+  variant: string;
+  total: number;
+  approved: number;
+  pending: number;
+}
+
+export interface PortalApprovalStats {
+  totalCount: number;
+  totalApproved: number;
+  totalPending: number;
+  byVariant: VariantApprovalStats[];
+}
+
+type SectionForStats = {
+  variant: string;
+  assets: { assetApprovedClient?: boolean }[];
+};
+
+/** Portal-wide approval counts derived from loaded sections (not hardcoded). */
+export function getPortalApprovalStats(
+  sections: SectionForStats[],
+  variants: string[]
+): PortalApprovalStats {
+  const byVariant = variants.map((variant) => {
+    const assets = sections.filter((s) => s.variant === variant).flatMap((s) => s.assets);
+    const total = assets.length;
+    const approved = assets.filter((a) => a.assetApprovedClient).length;
+    return { variant, total, approved, pending: total - approved };
+  });
+  const totalCount = byVariant.reduce((sum, v) => sum + v.total, 0);
+  const totalApproved = byVariant.reduce((sum, v) => sum + v.approved, 0);
+  return {
+    totalCount,
+    totalApproved,
+    totalPending: totalCount - totalApproved,
+    byVariant,
+  };
+}
+
+/** e.g. "Prospecting (4) and Retargeting (34)" — only types with pending > 0. */
+export function formatPendingTypeBreakdown(byVariant: VariantApprovalStats[]): string {
+  const withPending = byVariant.filter((v) => v.pending > 0);
+  if (withPending.length === 0) return '';
+  const parts = withPending.map((v) => `${v.variant} (${v.pending})`);
+  if (parts.length === 1) return parts[0];
+  if (parts.length === 2) return `${parts[0]} and ${parts[1]}`;
+  return `${parts.slice(0, -1).join(', ')}, and ${parts[parts.length - 1]}`;
+}
+
 export function getSectionCounts(assets: AssetForNewCheck[]): SectionCounts {
   const totalCount = assets.length;
   let newCount = 0;
