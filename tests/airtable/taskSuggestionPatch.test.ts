@@ -3,6 +3,7 @@ import {
   enrichTaskUpdateForSuggestionResolution,
   isActiveSuggestedResolution,
   serializeTaskFieldsForAirtable,
+  stripDismissedSuggestionsFieldOnMissingColumn,
   suggestedResolutionJsonFieldName,
   type SuggestedResolution,
   type TaskRecord,
@@ -110,6 +111,18 @@ describe('task suggestion resolution PATCH', () => {
       waitingSuggestion,
     );
     expect(enriched.suggestedResolution).toMatchObject({ status: 'resolved_by_user' });
+  });
+
+  it('stripDismissedSuggestionsFieldOnMissingColumn removes field on unknown column error', () => {
+    const fields = {
+      Task: 'Example',
+      'Dismissed Suggestions': '[]',
+    };
+    const stripped = stripDismissedSuggestionsFieldOnMissingColumn(
+      fields,
+      '{"error":{"type":"UNKNOWN_FIELD_NAME","message":"Unknown field name: \\"Dismissed Suggestions\\""}}',
+    );
+    expect(stripped).toEqual({ Task: 'Example' });
   });
 
   it('serialize writes resolved marker JSON to Airtable column', () => {

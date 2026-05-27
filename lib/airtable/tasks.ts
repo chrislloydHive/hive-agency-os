@@ -370,6 +370,18 @@ export function enrichTaskUpdateForSuggestionResolution(
   return out;
 }
 
+/** When the Tasks table has no "Dismissed Suggestions" column, drop that field and retry. */
+export function stripDismissedSuggestionsFieldOnMissingColumn(
+  fields: Record<string, unknown>,
+  errorText: string,
+): Record<string, unknown> | null {
+  if (!(TASK_FIELDS.DISMISSED_SUGGESTIONS in fields)) return null;
+  if (!errorText.includes('UNKNOWN_FIELD_NAME')) return null;
+  if (!errorText.includes('Dismissed Suggestions')) return null;
+  const { [TASK_FIELDS.DISMISSED_SUGGESTIONS]: _removed, ...rest } = fields;
+  return rest;
+}
+
 /**
  * Parse `recurrence` from a JSON body (PATCH/POST).
  * - Field omitted → present: false (PATCH should not change Airtable).
@@ -1110,14 +1122,29 @@ export async function updateTask(recordId: string, input: UpdateTaskInput): Prom
 
   const url = `https://api.airtable.com/v0/${baseId}/${encodeURIComponent(tableId)}/${recordId}`;
 
-  const response = await fetchWithRetry(url, {
+  let response = await fetchWithRetry(url, {
     method: 'PATCH',
     body: JSON.stringify({ fields, typecast: true }),
   });
 
   if (!response.ok) {
     const errorText = await response.text();
-    throw new Error(`Airtable API error updating task (${response.status}): ${errorText}`);
+    const retryFields = stripDismissedSuggestionsFieldOnMissingColumn(fields, errorText);
+    if (retryFields) {
+      console.warn(
+        `[updateTask] Dismissed Suggestions column missing for ${recordId}; retrying without it`,
+      );
+      response = await fetchWithRetry(url, {
+        method: 'PATCH',
+        body: JSON.stringify({ fields: retryFields, typecast: true }),
+      });
+      if (!response.ok) {
+        const retryErrorText = await response.text();
+        throw new Error(`Airtable API error updating task (${response.status}): ${retryErrorText}`);
+      }
+    } else {
+      throw new Error(`Airtable API error updating task (${response.status}): ${errorText}`);
+    }
   }
 
   const record = await response.json();
