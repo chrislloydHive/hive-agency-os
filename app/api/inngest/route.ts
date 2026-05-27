@@ -30,6 +30,7 @@ import {
 import { partnerDeliveryRequested } from '@/lib/inngest/functions/partner-delivery-requested';
 import { partnerDeliveryProbe } from '@/lib/inngest/functions/partner-delivery-probe';
 import { ingestCreativeFilesScheduled } from '@/lib/inngest/functions/ingestCreativeFiles';
+import { productionFolderMirrorScheduled } from '@/lib/inngest/functions/production-folder-mirror-scheduled';
 
 // Get the serve handlers
 const registeredFunctions = [
@@ -62,6 +63,8 @@ const registeredFunctions = [
   partnerDeliveryProbe,
   // Creative ingestion: poll CRH folders → create CRAS records
   ingestCreativeFilesScheduled,
+  // Internal production → partner production folder mirror (daily)
+  productionFolderMirrorScheduled,
 ];
 
 // Log registered functions at boot (once per process)

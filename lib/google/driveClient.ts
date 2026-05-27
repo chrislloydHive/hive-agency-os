@@ -1103,7 +1103,7 @@ export interface CopyDriveFolderTreeResult {
 }
 
 /** List all children of a folder (paginated). supportsAllDrives and includeItemsFromAllDrives. */
-async function listFolderChildren(
+export async function listFolderChildren(
   drive: drive_v3.Drive,
   parentId: string
 ): Promise<drive_v3.Schema$File[]> {

@@ -23,6 +23,7 @@ import {
   ensureChildFolderWithDrive,
   copyDriveFolderTree,
 } from '@/lib/google/driveClient';
+import { runProductionFolderMirrorForProject } from '@/lib/delivery/runProductionFolderMirror';
 
 /**
  * Resolve destination folder ID for a CRAS record's batch reference.
@@ -170,6 +171,23 @@ async function resolveDestinationFolderId(
     destinationFolderId: details.destinationFolderId,
     batchRecordId: details.recordId,
   };
+}
+
+async function readProjectIdFromCras(crasRecordId: string): Promise<string | null> {
+  try {
+    const base = getProjectsBase();
+    const record = await base(CREATIVE_REVIEW_ASSET_STATUS_TABLE).find(crasRecordId);
+    const projectRaw = record.fields['Project'];
+    if (Array.isArray(projectRaw) && projectRaw.length > 0 && typeof projectRaw[0] === 'string') {
+      return projectRaw[0].trim();
+    }
+    if (typeof projectRaw === 'string' && projectRaw.trim()) {
+      return projectRaw.trim();
+    }
+  } catch (err) {
+    console.warn('[partner-delivery-requested] Failed to read Project from CRAS:', err);
+  }
+  return null;
 }
 
 export const partnerDeliveryRequested = inngest.createFunction(
@@ -416,6 +434,18 @@ export const partnerDeliveryRequested = inngest.createFunction(
               
               if (!productionAssetsResult.ok) {
                 console.warn(`[partner-delivery-requested] Production assets delivery failed (non-blocking):`, productionAssetsResult.error);
+              }
+            }
+
+            // Full internal → partner production folder mirror (non-blocking)
+            const mirrorProjectId = await readProjectIdFromCras(crasRecordId);
+            if (mirrorProjectId) {
+              const mirrorResult = await runProductionFolderMirrorForProject(mirrorProjectId, {
+                oidcToken: process.env.VERCEL_OIDC_TOKEN ?? undefined,
+                requestId: `${requestId || 'event'}-mirror`,
+              });
+              if (!mirrorResult.ok && !mirrorResult.skipped) {
+                console.warn(`[partner-delivery-requested] Production folder mirror failed (non-blocking):`, mirrorResult.error);
               }
             }
             
