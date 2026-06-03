@@ -10,6 +10,7 @@ import {
   getTasks,
   updateTask,
   isActiveSuggestedResolution,
+  shouldSuppressSuggestedResolution,
   suggestedResolutionStoredSchema,
   type SuggestedResolution,
   type TaskRecord,
@@ -307,6 +308,13 @@ export async function POST() {
           return { taskId: task.id, kind: 'refresh_nochange' };
         }
 
+        if (shouldSuppressSuggestedResolution(task, finalCheck.data)) {
+          const patch: UpdateTaskInput = { lastSyncedAt: nowIso };
+          if (latestId) patch.threadRefreshMessageId = latestId;
+          await updateTaskWithOptionalSyncColumns(task.id, patch);
+          return { taskId: task.id, kind: 'refresh_nochange' };
+        }
+
         await updateTaskWithOptionalSyncColumns(task.id, {
           lastSyncedAt: nowIso,
           ...(latestId ? { threadRefreshMessageId: latestId } : {}),
@@ -419,6 +427,13 @@ export async function POST() {
 
         const finalCheck = suggestedResolutionStoredSchema.safeParse(full);
         if (!finalCheck.success) {
+          return { taskId: task.id, kind: 'skipped' };
+        }
+
+        if (shouldSuppressSuggestedResolution(task, finalCheck.data)) {
+          await updateTaskWithOptionalSyncColumns(task.id, {
+            lastSyncedAt: new Date().toISOString(),
+          });
           return { taskId: task.id, kind: 'skipped' };
         }
 

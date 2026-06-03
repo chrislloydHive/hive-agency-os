@@ -9,6 +9,14 @@ import { z } from 'zod';
 import { fetchWithRetry } from './client';
 import { resolveTasksBaseId } from './bases';
 import { logEventAsync, summarizeTaskUpdate, type ActivityAction } from './activityLog';
+import { appendDismissedSuggestionEntry } from './suggestionSuppression';
+
+export {
+  suggestionFingerprint,
+  shouldSuppressSuggestedResolution,
+  buildDismissedSuggestionEntry,
+  appendDismissedSuggestionEntry,
+} from './suggestionSuppression';
 
 // ============================================================================
 // Constants
@@ -287,36 +295,6 @@ export function parseSuggestedResolutionPatchInput(
   return { ok: true, value: r.data };
 }
 
-function dismissedFingerprintForSuggestion(sr: SuggestedResolution): DismissedSuggestion {
-  const action = 'action' in sr ? sr.action : 'unknown';
-  const candidateTaskId =
-    action === 'add_blocker'
-      ? (sr as z.infer<typeof suggestedResolutionAddBlockerSchema>).candidateTaskId
-      : action === 'unblocked'
-        ? (sr as z.infer<typeof suggestedResolutionUnblockedSchema>).byTaskId
-        : undefined;
-  return {
-    action,
-    ...(candidateTaskId ? { candidateTaskId } : {}),
-    dismissedAt: new Date().toISOString(),
-  };
-}
-
-function appendDismissedSuggestion(
-  existing: DismissedSuggestion[],
-  sr: SuggestedResolution,
-): DismissedSuggestion[] {
-  const entry = dismissedFingerprintForSuggestion(sr);
-  const dup = existing.some(
-    (d) =>
-      d.action === entry.action &&
-      d.candidateTaskId === entry.candidateTaskId &&
-      d.dismissedAt === entry.dismissedAt,
-  );
-  if (dup) return existing;
-  return [...existing, entry];
-}
-
 function patchImpliesSuggestionResolve(input: UpdateTaskInput): boolean {
   if (input.done === true) return true;
   if (input.status === 'Done' || input.status === 'Next') return true;
@@ -362,9 +340,10 @@ export function enrichTaskUpdateForSuggestionResolution(
 
   out.suggestedResolution = buildResolvedByUserMarker(rawSuggestedResolution);
   if (!Object.prototype.hasOwnProperty.call(input, 'dismissedSuggestions')) {
-    out.dismissedSuggestions = appendDismissedSuggestion(
+    out.dismissedSuggestions = appendDismissedSuggestionEntry(
       current.dismissedSuggestions,
       rawSuggestedResolution,
+      current.latestInboundAt,
     );
   }
   return out;
@@ -479,6 +458,10 @@ export interface DismissedSuggestion {
   action: string;
   candidateTaskId?: string;
   dismissedAt: string;
+  /** Content hash of the dismissed proposal; newer proposals get a new fingerprint. */
+  fingerprint?: string;
+  /** task.latestInboundAt when the user dismissed — re-surface only after newer mail. */
+  inboundWatermark?: string | null;
 }
 
 export interface TaskRecord {
@@ -559,6 +542,8 @@ export interface CreateTaskInput {
   waitingOnType?: WaitingOnType | null;
   waitingOnDescription?: string;
   waitingUntil?: string | null;
+  /** ISO datetime; defaults to now on create when omitted. */
+  createdAt?: string | null;
 }
 
 export interface UpdateTaskInput {
@@ -596,6 +581,7 @@ export interface UpdateTaskInput {
   waitingOnDescription?: string;
   waitingUntil?: string | null;
   dismissedSuggestions?: DismissedSuggestion[];
+  createdAt?: string | null;
 }
 
 /** Map Airtable record → TaskRecord (includes recurrence). */
@@ -694,10 +680,20 @@ function parseDismissedSuggestionsFromAirtable(raw: unknown): DismissedSuggestio
   try {
     const arr = JSON.parse(raw.trim());
     if (!Array.isArray(arr)) return [];
-    return arr.filter(
-      (v): v is DismissedSuggestion =>
-        typeof v === 'object' && v !== null && typeof v.action === 'string' && typeof v.dismissedAt === 'string',
-    );
+    return arr
+      .filter(
+        (v): v is Record<string, unknown> =>
+          typeof v === 'object' && v !== null && typeof v.action === 'string' && typeof v.dismissedAt === 'string',
+      )
+      .map((v) => ({
+        action: v.action as string,
+        dismissedAt: v.dismissedAt as string,
+        ...(typeof v.candidateTaskId === 'string' ? { candidateTaskId: v.candidateTaskId } : {}),
+        ...(typeof v.fingerprint === 'string' ? { fingerprint: v.fingerprint } : {}),
+        ...(v.inboundWatermark === null || typeof v.inboundWatermark === 'string'
+          ? { inboundWatermark: v.inboundWatermark as string | null }
+          : {}),
+      }));
   } catch { /* invalid JSON */ }
   return [];
 }
@@ -767,6 +763,27 @@ export function mergeTaskUpdateWithArchiveRules(
     return out;
   }
 
+  // Soft-dismiss (triage) or explicit dismissal timestamp → leave inbox
+  if (
+    Object.prototype.hasOwnProperty.call(input, 'dismissedAt') &&
+    input.dismissedAt != null &&
+    input.dismissedAt !== '' &&
+    input.view === undefined
+  ) {
+    out.view = 'archive';
+  }
+
+  if (
+    Object.prototype.hasOwnProperty.call(input, 'dismissedAt') &&
+    (input.dismissedAt === null || input.dismissedAt === '') &&
+    input.view === undefined &&
+    current.view === 'archive' &&
+    !out.done &&
+    out.status !== 'Done'
+  ) {
+    out.view = 'inbox';
+  }
+
   return out;
 }
 
@@ -832,6 +849,9 @@ function mapInputToFields(input: CreateTaskInput | UpdateTaskInput): Record<stri
     } else if (typeof sr === 'object' && !Array.isArray(sr)) {
       fields[TASK_FIELDS.SUGGESTED_RESOLUTION] = JSON.stringify(sr);
     }
+  }
+  if ('createdAt' in input) {
+    fields[TASK_FIELDS.CREATED_AT] = input.createdAt || null;
   }
   if ('lastSyncedAt' in input) {
     fields[TASK_FIELDS.LAST_SYNCED_AT] = input.lastSyncedAt || null;
@@ -1054,7 +1074,11 @@ export async function getTasks(options?: {
 export async function createTask(input: CreateTaskInput): Promise<TaskRecord> {
   const baseId = tasksBaseIdOrThrow();
   const tableId = getTasksTableIdentifier();
-  const fields = mapInputToFields(input);
+  const withTimestamps: CreateTaskInput = {
+    ...input,
+    createdAt: input.createdAt ?? new Date().toISOString(),
+  };
+  const fields = mapInputToFields(withTimestamps);
 
   const url = `https://api.airtable.com/v0/${baseId}/${encodeURIComponent(tableId)}`;
 

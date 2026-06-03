@@ -30,6 +30,7 @@ import {
   type TaskPriority,
   type TaskRecord,
   type TaskSource,
+  shouldSuppressSuggestedResolution,
 } from '@/lib/airtable/tasks';
 import {
   getWorkspaceDocs,
@@ -1383,20 +1384,6 @@ function extractContactEmails(task: TaskRecord): Set<string> {
   return emails;
 }
 
-function wasDismissed(
-  task: TaskRecord,
-  action: string,
-  candidateTaskId?: string,
-): boolean {
-  const cutoff = Date.now() - 30 * 24 * 60 * 60 * 1000;
-  return task.dismissedSuggestions.some(
-    (d) =>
-      d.action === action &&
-      (!candidateTaskId || d.candidateTaskId === candidateTaskId) &&
-      new Date(d.dismissedAt).getTime() > cutoff,
-  );
-}
-
 async function runLinkDetectionPass(
   activeTasks: TaskRecord[],
   stats: SyncStats,
@@ -1416,7 +1403,11 @@ async function runLinkDetectionPass(
     }
   }
 
+  const syncStamp = new Date().toISOString();
+
   for (const task of tasksToScan) {
+    await updateTask(task.id, { lastSyncedAt: syncStamp }).catch(() => {});
+
     if (task.suggestedResolution) continue;
 
     const taskTerms = termSets.get(task.id) || new Set<string>();
@@ -1501,18 +1492,19 @@ async function runLinkDetectionPass(
           if (candidateIdx < 0 || candidateIdx >= batch.length) continue;
           const candidate = batch[candidateIdx];
           if (task.blockedBy.includes(candidate.id)) continue;
-          if (wasDismissed(task, 'add_blocker', candidate.id)) continue;
+          const blockerSuggestion = {
+            action: 'add_blocker' as const,
+            confidence: ev.confidence as 'high' | 'medium',
+            candidateTaskId: candidate.id,
+            candidateTaskTitle: candidate.task,
+            reasoning: ev.why,
+            suggestedAt: new Date().toISOString(),
+          };
+          if (shouldSuppressSuggestedResolution(task, blockerSuggestion)) continue;
           if (task.suggestedResolution) break;
 
           await updateTask(task.id, {
-            suggestedResolution: {
-              action: 'add_blocker' as const,
-              confidence: ev.confidence as 'high' | 'medium',
-              candidateTaskId: candidate.id,
-              candidateTaskTitle: candidate.task,
-              reasoning: ev.why,
-              suggestedAt: new Date().toISOString(),
-            },
+            suggestedResolution: blockerSuggestion,
           });
           stats.linkDetectionBlockerSuggestions++;
           break;
@@ -1532,7 +1524,7 @@ async function runLinkDetectionPass(
       const textToScan = [task.nextAction, task.notes].filter(Boolean).join(' ');
       const hasWaitingLanguage = /waiting (?:for|on)|pending (?:review|approval|response)|until \d/i.test(textToScan);
 
-      if (daysSinceActivity >= 7 && hasWaitingLanguage && !wasDismissed(task, 'set_waiting_on')) {
+      if (daysSinceActivity >= 7 && hasWaitingLanguage) {
         try {
           const waitResult = await callAnthropicWithRetry(
             () =>
@@ -1562,20 +1554,23 @@ async function runLinkDetectionPass(
               ['date', 'decision', 'person', 'meeting'].includes(waitParsed.type) &&
               waitParsed.description
             ) {
-              await updateTask(task.id, {
-                suggestedResolution: {
-                  action: 'set_waiting_on' as const,
-                  confidence: 'medium' as const,
-                  proposal: {
-                    waitingOnType: waitParsed.type as 'date' | 'decision' | 'person' | 'meeting',
-                    waitingOnDescription: waitParsed.description,
-                    ...(waitParsed.until ? { waitingUntil: waitParsed.until } : {}),
-                  },
-                  reasoning: `Task has had no thread activity for ${Math.round(daysSinceActivity)} days and text contains waiting language.`,
-                  suggestedAt: new Date().toISOString(),
+              const waitingSuggestion = {
+                action: 'set_waiting_on' as const,
+                confidence: 'medium' as const,
+                proposal: {
+                  waitingOnType: waitParsed.type as 'date' | 'decision' | 'person' | 'meeting',
+                  waitingOnDescription: waitParsed.description,
+                  ...(waitParsed.until ? { waitingUntil: waitParsed.until } : {}),
                 },
-              });
-              stats.linkDetectionWaitingOnSuggestions++;
+                reasoning: `Task has had no thread activity for ${Math.round(daysSinceActivity)} days and text contains waiting language.`,
+                suggestedAt: new Date().toISOString(),
+              };
+              if (!shouldSuppressSuggestedResolution(task, waitingSuggestion)) {
+                await updateTask(task.id, {
+                  suggestedResolution: waitingSuggestion,
+                });
+                stats.linkDetectionWaitingOnSuggestions++;
+              }
             }
           } catch { /* invalid JSON from LLM */ }
         } catch (err) {

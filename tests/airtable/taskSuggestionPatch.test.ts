@@ -5,6 +5,7 @@ import {
   serializeTaskFieldsForAirtable,
   stripDismissedSuggestionsFieldOnMissingColumn,
   suggestedResolutionJsonFieldName,
+  suggestionFingerprint,
   type SuggestedResolution,
   type TaskRecord,
 } from '@/lib/airtable/tasks';
@@ -97,6 +98,10 @@ describe('task suggestion resolution PATCH', () => {
     });
     expect(enriched.dismissedSuggestions).toHaveLength(1);
     expect(enriched.dismissedSuggestions?.[0].action).toBe('set_waiting_on');
+    expect(enriched.dismissedSuggestions?.[0].fingerprint).toBe(
+      suggestionFingerprint(waitingSuggestion),
+    );
+    expect(enriched.dismissedSuggestions?.[0].inboundWatermark).toBeNull();
   });
 
   it('enrich infers clear when suggestedResolution key is omitted but resolution fields are sent', () => {

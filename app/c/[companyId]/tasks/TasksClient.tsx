@@ -74,6 +74,8 @@ interface TaskItem {
    *  "new reply" pill. Cleared by engagement (open thread, draft reply). */
   lastSeenAt?: string | null;
   latestInboundAt?: string | null;
+  /** Soft-dismiss from triage; hidden from inbox even if view is stale. */
+  dismissedAt?: string | null;
 }
 
 type Priority = 'P0' | 'P1' | 'P2' | 'P3';
@@ -992,6 +994,7 @@ export function TasksClient({ company }: TasksClientProps) {
         sourceRef: (t.sourceRef as string) || null,
         lastSeenAt: (t.lastSeenAt as string) || null,
         latestInboundAt: (t.latestInboundAt as string) || null,
+        dismissedAt: (t.dismissedAt as string) || null,
       }));
       setTasks(mapped);
     } catch (err) {
@@ -1494,7 +1497,13 @@ export function TasksClient({ company }: TasksClientProps) {
   // Derived lists for the active view
   const viewTasks = useMemo(() => {
     if (activeView === 'inbox') {
-      return tasks.filter((t) => t.view === 'inbox' && t.status !== 'Done');
+      return tasks.filter(
+        (t) =>
+          t.view === 'inbox' &&
+          t.status !== 'Done' &&
+          !t.checked &&
+          !t.dismissedAt,
+      );
     }
     return tasks.filter((t) => t.view === activeView);
   }, [tasks, activeView]);
