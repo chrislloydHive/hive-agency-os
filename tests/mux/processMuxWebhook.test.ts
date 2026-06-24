@@ -23,6 +23,9 @@ vi.mock('@/lib/mux/client', () => ({
   getMuxWebhookSecret: vi.fn(),
 }));
 
+const mockFetch = vi.fn().mockResolvedValue({ ok: true });
+vi.stubGlobal('fetch', mockFetch);
+
 const mockGetProjectsBase = vi.mocked(getProjectsBase);
 const mockGetMuxClient = vi.mocked(getMuxClient);
 const mockGetMuxWebhookSecret = vi.mocked(getMuxWebhookSecret);
@@ -40,6 +43,8 @@ describe('processMuxWebhook', () => {
 
   beforeEach(() => {
     vi.resetAllMocks();
+    mockFetch.mockClear();
+    mockFetch.mockResolvedValue({ ok: true });
     update = vi.fn().mockResolvedValue({});
     firstPage = vi.fn();
     verifySignature = vi.fn().mockResolvedValue(undefined);
@@ -100,6 +105,10 @@ describe('processMuxWebhook', () => {
       [CRAS_MUX_DURATION_FIELD]: 42.5,
       [CRAS_MUX_ASPECT_RATIO_FIELD]: '16:9',
     });
+    expect(mockFetch).toHaveBeenCalledWith(
+      'https://image.mux.com/pb_public/thumbnail.jpg?width=640&height=360&fit_mode=smartcrop&time=1.5',
+      { method: 'GET' },
+    );
   });
 
   it('video.asset.errored writes status and error message', async () => {

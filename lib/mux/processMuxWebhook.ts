@@ -14,6 +14,7 @@ import {
   CRAS_MUX_UPLOAD_ID_FIELD,
 } from '@/lib/mux/crasMuxFields';
 import { getMuxClient, getMuxWebhookSecret } from '@/lib/mux/client';
+import { warmMuxThumbnailCache } from '@/lib/review/warmMuxThumbnail';
 
 const CRAS_TABLE = AIRTABLE_TABLES.CREATIVE_REVIEW_ASSET_STATUS;
 
@@ -110,6 +111,7 @@ export async function processMuxWebhook(
       fields[CRAS_MUX_ASPECT_RATIO_FIELD] = asset.aspect_ratio.trim();
     }
     await base(CRAS_TABLE).update(crasId, fields as any);
+    if (playbackId) warmMuxThumbnailCache(playbackId);
     console.log('[mux/webhook] video.asset.ready', { crasRecordId: crasId, playbackId, assetId: asset.id });
     return { handled: true, type, crasRecordId: crasId };
   }

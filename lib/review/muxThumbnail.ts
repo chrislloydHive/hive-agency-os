@@ -4,6 +4,41 @@
 
 export type MuxThumbnailFitMode = 'preserve' | 'smartcrop';
 
+export type MuxThumbnailUrlOpts = {
+  width?: number;
+  height?: number;
+  fitMode?: MuxThumbnailFitMode;
+  /** Frame offset in seconds (avoids blank slates at t=0). */
+  time?: number;
+};
+
+/** Primary grid poster params — must stay in sync with GridMuxPoster / warmer. */
+export const MUX_PORTAL_GRID_POSTER = {
+  width: 640,
+  height: 360,
+  fitMode: 'smartcrop' as const,
+  time: 1.5,
+} as const;
+
+/**
+ * Static Mux thumbnail URL for a playback ID.
+ * Defaults match the primary Display grid card poster (640×360 smartcrop @ 1.5s).
+ */
+export function muxThumbnailUrl(playbackId: string, opts: MuxThumbnailUrlOpts = {}): string {
+  const id = playbackId.trim();
+  const width = opts.width ?? MUX_PORTAL_GRID_POSTER.width;
+  const height = opts.height ?? MUX_PORTAL_GRID_POSTER.height;
+  const fitMode = opts.fitMode ?? MUX_PORTAL_GRID_POSTER.fitMode;
+  const time = opts.time ?? MUX_PORTAL_GRID_POSTER.time;
+  const params = new URLSearchParams({
+    width: String(width),
+    height: String(height),
+    fit_mode: fitMode,
+    time: String(time),
+  });
+  return `https://image.mux.com/${id}/thumbnail.jpg?${params.toString()}`;
+}
+
 /** Parse CRAS "Mux Aspect Ratio" (e.g. 9:16, 4:5) for CSS and layout; default 16:9. */
 export function parseMuxAspectDimensions(muxAspectRatio: string | null | undefined): {
   cssRatio: string;
@@ -69,34 +104,21 @@ export function muxThumbnailImageUrl(playbackId: string, opts: MuxThumbnailImage
   return `https://image.mux.com/${id}/thumbnail.jpg?${params.toString()}`;
 }
 
-function muxSmartcropPosterUrl(
-  playbackId: string,
-  width: number,
-  height: number,
-  timeSeconds: number,
-): string {
-  const id = playbackId.trim();
-  const params = new URLSearchParams({
-    width: String(width),
-    height: String(height),
-    fit_mode: 'smartcrop',
-    time: String(timeSeconds),
-  });
-  return `https://image.mux.com/${id}/thumbnail.jpg?${params.toString()}`;
-}
-
 /** Grid card posters: 16:9 smartcrop at several timestamps (skips blank first frames). */
 export function muxGridPosterUrls(playbackId: string): string[] {
   const id = playbackId.trim();
   if (!id) return [];
-  return [1.5, 2.5, 0.75, 3].map((t) => muxSmartcropPosterUrl(id, 640, 360, t));
+  const { width, height, fitMode } = MUX_PORTAL_GRID_POSTER;
+  return [1.5, 2.5, 0.75, 3].map((t) => muxThumbnailUrl(id, { width, height, fitMode, time: t }));
 }
 
 /** Carousel strip tiles (square smartcrop). */
 export function muxCarouselPosterUrls(playbackId: string): string[] {
   const id = playbackId.trim();
   if (!id) return [];
-  return [1.5, 2.5, 0.75].map((t) => muxSmartcropPosterUrl(id, 280, 280, t));
+  return [1.5, 2.5, 0.75].map((t) =>
+    muxThumbnailUrl(id, { width: 280, height: 280, fitMode: 'smartcrop', time: t }),
+  );
 }
 
 /** Wide leaderboard / banner creatives: crop for readable grid tiles instead of ~30px-tall strips. */
