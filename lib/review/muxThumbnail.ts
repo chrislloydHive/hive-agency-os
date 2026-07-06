@@ -121,6 +121,30 @@ export function muxCarouselPosterUrls(playbackId: string): string[] {
   );
 }
 
+/** All portal poster variants to warm on the CDN (grid + carousel fallbacks). */
+export function muxPortalPosterWarmUrls(
+  playbackId: string,
+  muxAspectRatio?: string | null,
+): string[] {
+  return [
+    ...new Set([
+      ...muxPortalPosterDisplayUrls(playbackId, 'grid', muxAspectRatio),
+      ...muxPortalPosterDisplayUrls(playbackId, 'carousel', muxAspectRatio),
+    ]),
+  ];
+}
+
+/** Ordered poster URLs the portal tries for a layout (timestamp + aspect fallbacks). */
+export function muxPortalPosterDisplayUrls(
+  playbackId: string,
+  layout: 'grid' | 'carousel',
+  muxAspectRatio?: string | null,
+): string[] {
+  const base = layout === 'carousel' ? muxCarouselPosterUrls(playbackId) : muxGridPosterUrls(playbackId);
+  const fallbacks = muxPosterFallbackUrls(playbackId, muxAspectRatio, layout);
+  return [...new Set([...base, ...fallbacks])];
+}
+
 /** Wide leaderboard / banner creatives: crop for readable grid tiles instead of ~30px-tall strips. */
 const GRID_LEADERBOARD_ASPECT_THRESHOLD = 3;
 

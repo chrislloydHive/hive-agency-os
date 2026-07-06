@@ -249,7 +249,7 @@ export default async function ReviewPage({
   // Enrich Drive-listed assets with CRAS (Mux posters, review state) for first paint
   try {
     const statusMap = await listAssetStatuses(token);
-    sections = enrichReviewSectionsFromCras(sections, statusMap).map((sec) => ({
+    sections = enrichReviewSectionsFromCras(sections, statusMap, token).map((sec) => ({
       ...sec,
       fileCount: sec.assets.length,
     }));

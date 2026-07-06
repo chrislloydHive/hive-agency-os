@@ -16,6 +16,7 @@ import {
 } from '@/lib/review/reviewMediaDisplay';
 import { muxPlaybackReadyForThumbnail } from '@/lib/review/muxThumbnail';
 import GridMuxPoster from './GridMuxPoster';
+import DriveFileThumbnail from './DriveFileThumbnail';
 import { ReviewAudioPlayer } from './ReviewAudioPlayer';
 import {
   getSectionCounts,
@@ -1238,7 +1239,16 @@ function PlacementGroupCard({
                             playbackId={carouselMuxPid}
                             alt={asset.name}
                             layout="carousel"
+                            muxAspectRatio={asset.muxAspectRatio}
                             className="h-full w-full object-cover transition-transform group-hover:scale-105"
+                            fallback={
+                              <VideoWithThumbnail
+                                key={asset.fileId}
+                                src={src}
+                                downloadHref={reviewFileDownloadHref(src)}
+                                className="h-full w-full object-cover"
+                              />
+                            }
                           />
                         ) : (
                           <VideoWithThumbnail
@@ -1266,11 +1276,14 @@ function PlacementGroupCard({
                       </div>
                     )}
                     {!isImage && !isVideo && !isAudio && (
-                      <div className="flex h-full w-full items-center justify-center text-gray-500">
-                        <svg className="h-8 w-8" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-                        </svg>
-                      </div>
+                      <DriveFileThumbnail
+                        fileId={asset.fileId}
+                        token={token}
+                        crasRecordId={asset.airtableRecordId}
+                        alt={asset.name}
+                        compact
+                        className="h-full w-full object-cover object-top"
+                      />
                     )}
                   </div>
 
@@ -1566,7 +1579,19 @@ function AssetCard({
         {isVideo && (
           <>
             {muxPoster && muxPid ? (
-              <GridMuxPoster playbackId={muxPid} alt={asset.name} />
+              <GridMuxPoster
+                playbackId={muxPid}
+                alt={asset.name}
+                muxAspectRatio={asset.muxAspectRatio}
+                fallback={
+                  <VideoWithThumbnail
+                    key={asset.fileId}
+                    src={src}
+                    downloadHref={reviewFileDownloadHref(src)}
+                    className="h-full w-full object-cover"
+                  />
+                }
+              />
             ) : (
               <div className="absolute inset-0">
                 <VideoWithThumbnail
@@ -1595,12 +1620,13 @@ function AssetCard({
           </div>
         )}
         {!isImage && !isVideo && !isAudio && (
-          <div className="flex flex-col items-center gap-2">
-            <svg className="h-10 w-10 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-            </svg>
-            <span className="text-xs text-gray-500">File</span>
-          </div>
+          <DriveFileThumbnail
+            fileId={asset.fileId}
+            token={token}
+            crasRecordId={asset.airtableRecordId}
+            alt={asset.name}
+            className="absolute inset-0 h-full w-full object-cover object-top"
+          />
         )}
         {/* Expand hint */}
         <div className="absolute bottom-2 right-2 rounded bg-black/60 px-2 py-1 text-xs text-gray-300 opacity-0 transition-opacity group-hover:opacity-100">

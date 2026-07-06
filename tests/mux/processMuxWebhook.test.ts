@@ -105,10 +105,29 @@ describe('processMuxWebhook', () => {
       [CRAS_MUX_DURATION_FIELD]: 42.5,
       [CRAS_MUX_ASPECT_RATIO_FIELD]: '16:9',
     });
+    expect(mockFetch.mock.calls.length).toBeGreaterThanOrEqual(1);
     expect(mockFetch).toHaveBeenCalledWith(
       'https://image.mux.com/pb_public/thumbnail.jpg?width=640&height=360&fit_mode=smartcrop&time=1.5',
-      { method: 'GET' },
+      expect.objectContaining({ method: 'GET' }),
     );
+  });
+
+  it('video.asset.ready skips signed-only playback ids', async () => {
+    const body = JSON.stringify({
+      type: 'video.asset.ready',
+      data: {
+        id: 'mux_asset_signed',
+        passthrough: CRAS_ID,
+        playback_ids: [{ id: 'pb_signed', policy: 'signed' }],
+      },
+    });
+    const res = await processMuxWebhook(body, headersForMux());
+    expect(res).toEqual({ handled: true, type: 'video.asset.ready', crasRecordId: CRAS_ID });
+    expect(update).toHaveBeenCalledWith(CRAS_ID, {
+      [CRAS_MUX_STATUS_FIELD]: 'ready',
+      [CRAS_MUX_ASSET_ID_FIELD]: 'mux_asset_signed',
+    });
+    expect(mockFetch).not.toHaveBeenCalled();
   });
 
   it('video.asset.errored writes status and error message', async () => {

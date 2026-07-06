@@ -30,8 +30,7 @@ function playbackIdFromAsset(asset: { playback_ids?: Array<{ id?: string; policy
   const ids = asset.playback_ids;
   if (!Array.isArray(ids) || ids.length === 0) return null;
   const pub = ids.find((p) => p.policy === 'public' && p.id);
-  const first = ids.find((p) => p.id);
-  return (pub?.id ?? first?.id ?? null) as string | null;
+  return (pub?.id ?? null) as string | null;
 }
 
 /**
@@ -111,7 +110,21 @@ export async function processMuxWebhook(
       fields[CRAS_MUX_ASPECT_RATIO_FIELD] = asset.aspect_ratio.trim();
     }
     await base(CRAS_TABLE).update(crasId, fields as any);
-    if (playbackId) warmMuxThumbnailCache(playbackId);
+    if (playbackId) {
+      const aspect =
+        typeof asset.aspect_ratio === 'string' && asset.aspect_ratio.trim()
+          ? asset.aspect_ratio.trim()
+          : null;
+      const warm = await warmMuxThumbnailCache(playbackId, aspect);
+      if (warm.failed > 0) {
+        console.warn('[mux/webhook] thumbnail warm partial failure', { playbackId, ...warm });
+      }
+    } else {
+      console.warn('[mux/webhook] video.asset.ready missing public playback id', {
+        crasRecordId: crasId,
+        assetId: asset.id,
+      });
+    }
     console.log('[mux/webhook] video.asset.ready', { crasRecordId: crasId, playbackId, assetId: asset.id });
     return { handled: true, type, crasRecordId: crasId };
   }

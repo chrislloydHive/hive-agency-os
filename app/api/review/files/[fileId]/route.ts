@@ -28,6 +28,7 @@ import {
   exportGoogleWorkspaceFile,
 } from '@/lib/google/driveClient';
 import { resolveInlineContentType } from '@/lib/review/reviewMediaDisplay';
+import { driveThumbnailUrlAtSize } from '@/lib/review/driveThumbnail';
 import { driveErrorsSuggestServiceAccountFallback, flattenGoogleDriveError } from '@/lib/review/googleDriveErrors';
 
 export const dynamic = 'force-dynamic';
@@ -249,6 +250,11 @@ export async function GET(
   });
   if (!authorized) {
     return jsonError(403, 'File not found for this review');
+  }
+
+  const thumb = req.nextUrl.searchParams.get('thumb') === '1';
+  if (thumb) {
+    return serveDriveThumbnail(req, drive, fileId);
   }
 
   // Fetch Drive metadata. The portal proxy uses per-company OAuth, but the
@@ -619,6 +625,85 @@ export async function GET(
 }
 
 /* ----------------------------- helpers ----------------------------- */
+
+async function fetchDriveThumbnailLink(
+  drive: ReturnType<typeof google.drive>,
+  fileId: string,
+): Promise<{ link: string | null; drive: ReturnType<typeof google.drive> }> {
+  try {
+    const meta = await withTimeout(
+      drive.files.get({
+        fileId,
+        fields: 'thumbnailLink',
+        supportsAllDrives: true,
+      }),
+      15_000,
+      `drive.files.get thumbnailLink fileId=${fileId}`,
+    );
+    return { link: meta.data.thumbnailLink ?? null, drive };
+  } catch (err: unknown) {
+    if (driveErrorsSuggestServiceAccountFallback(err)) {
+      console.warn(
+        `[review/files] OAuth thumbnailLink failed for ${fileId}; retrying with service account`,
+      );
+      const saDrive = getDriveClientWithServiceAccount();
+      const meta = await withTimeout(
+        saDrive.files.get({
+          fileId,
+          fields: 'thumbnailLink',
+          supportsAllDrives: true,
+        }),
+        15_000,
+        `drive.files.get thumbnailLink(SA) fileId=${fileId}`,
+      );
+      return { link: meta.data.thumbnailLink ?? null, drive: saDrive };
+    }
+    throw err;
+  }
+}
+
+async function serveDriveThumbnail(
+  req: NextRequest,
+  drive: ReturnType<typeof google.drive>,
+  fileId: string,
+): Promise<NextResponse> {
+  try {
+    const { link } = await fetchDriveThumbnailLink(drive, fileId);
+    if (!link) {
+      return jsonError(404, 'No thumbnail');
+    }
+
+    const sizedUrl = driveThumbnailUrlAtSize(link, 800);
+    const thumbRes = await withTimeout(
+      fetch(sizedUrl, { method: 'GET' }),
+      15_000,
+      `fetch drive thumbnail fileId=${fileId}`,
+    );
+    if (!thumbRes.ok) {
+      console.warn('[review/files] Drive thumbnail fetch failed', {
+        fileId: fileId.slice(0, 12),
+        status: thumbRes.status,
+      });
+      return jsonError(thumbRes.status === 404 ? 404 : 502, 'Thumbnail not available');
+    }
+
+    const contentType = thumbRes.headers.get('content-type')?.trim() || 'image/png';
+    const body = req.method === 'HEAD' ? null : Buffer.from(await thumbRes.arrayBuffer());
+    return new NextResponse(body, {
+      status: 200,
+      headers: {
+        'Content-Type': contentType,
+        'Cache-Control': 'private, max-age=3600',
+        'X-Content-Type-Options': 'nosniff',
+        ...(body ? { 'Content-Length': String(body.byteLength) } : {}),
+      },
+    });
+  } catch (err: unknown) {
+    const msg = err instanceof Error ? err.message : String(err);
+    console.error('[review/files] Drive thumbnail error:', msg);
+    return jsonError(504, 'Thumbnail not available');
+  }
+}
 
 function destroyIfStream(data: unknown): void {
   if (data && typeof (data as Readable).destroy === 'function') {

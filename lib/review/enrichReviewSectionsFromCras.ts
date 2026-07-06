@@ -1,4 +1,4 @@
-import type { StatusRecord } from '@/lib/airtable/reviewAssetStatus';
+import { statusRecordForDriveFile, type StatusRecord } from '@/lib/airtable/reviewAssetStatus';
 import { resolveInlineContentType } from '@/lib/review/reviewMediaDisplay';
 
 type ReviewState = 'new' | 'seen' | 'approved' | 'needs_changes';
@@ -29,11 +29,12 @@ function toReviewState(rec: StatusRecord): ReviewState | undefined {
 export function enrichReviewSectionsFromCras<T extends CrasEnrichableSection>(
   sections: T[],
   statusMap: Map<string, StatusRecord>,
+  token: string,
 ): T[] {
   return sections.map((sec) => ({
     ...sec,
     assets: sec.assets.map((asset) => {
-      const rec = statusMap.get(asset.fileId);
+      const rec = statusRecordForDriveFile(statusMap, token, asset.fileId);
       if (!rec) {
         return {
           ...asset,

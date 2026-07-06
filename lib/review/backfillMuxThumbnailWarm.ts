@@ -12,12 +12,15 @@ export interface BackfillMuxThumbnailWarmResult {
     filename: string | null;
     playbackId: string;
     action: 'would-warm' | 'warmed' | 'skip-not-ready';
+    urlCount?: number;
   }>;
 }
 
+const ASSET_CONCURRENCY = 3;
+
 /**
  * For each client-visible CRAS row in this portal with muxStatus=ready and a playback ID,
- * fire a GET to warm the primary grid poster on Mux's CDN.
+ * await GETs for every portal poster variant on Mux's CDN.
  */
 export async function backfillMuxThumbnailWarm(params: {
   token: string;
@@ -39,10 +42,8 @@ export async function backfillMuxThumbnailWarm(params: {
   );
   result.considered = candidates.length;
 
-  let warmedCount = 0;
+  const toWarm: typeof candidates = [];
   for (const rec of candidates) {
-    if (limit != null && warmedCount >= limit) break;
-
     const playbackId = rec.muxPlaybackId?.trim() ?? '';
     if (!muxPlaybackReadyForThumbnail(rec.muxStatus, playbackId)) {
       result.skipped += 1;
@@ -54,33 +55,49 @@ export async function backfillMuxThumbnailWarm(params: {
       });
       continue;
     }
+    toWarm.push(rec);
+  }
 
-    if (dryRun) {
+  const capped = limit != null ? toWarm.slice(0, limit) : toWarm;
+
+  if (dryRun) {
+    for (const rec of capped) {
       result.warmed += 1;
-      warmedCount += 1;
       result.trace.push({
         crasRecordId: rec.recordId,
         filename: rec.filename,
-        playbackId,
+        playbackId: rec.muxPlaybackId!.trim(),
         action: 'would-warm',
       });
-      continue;
     }
+    return result;
+  }
 
-    try {
-      warmMuxThumbnailCache(playbackId);
-      result.warmed += 1;
-      warmedCount += 1;
-      result.trace.push({
-        crasRecordId: rec.recordId,
-        filename: rec.filename,
-        playbackId,
-        action: 'warmed',
-      });
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err);
-      result.errors.push(`${rec.recordId}: ${msg}`);
-    }
+  for (let i = 0; i < capped.length; i += ASSET_CONCURRENCY) {
+    const batch = capped.slice(i, i + ASSET_CONCURRENCY);
+    await Promise.all(
+      batch.map(async (rec) => {
+        const playbackId = rec.muxPlaybackId!.trim();
+        try {
+          const warm = await warmMuxThumbnailCache(playbackId);
+          if (warm.ok === 0 && warm.urls > 0) {
+            result.errors.push(`${rec.recordId}: all ${warm.urls} thumbnail warm requests failed`);
+          } else {
+            result.warmed += 1;
+            result.trace.push({
+              crasRecordId: rec.recordId,
+              filename: rec.filename,
+              playbackId,
+              action: 'warmed',
+              urlCount: warm.urls,
+            });
+          }
+        } catch (err) {
+          const msg = err instanceof Error ? err.message : String(err);
+          result.errors.push(`${rec.recordId}: ${msg}`);
+        }
+      }),
+    );
   }
 
   return result;

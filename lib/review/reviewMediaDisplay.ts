@@ -103,3 +103,15 @@ export function buildReviewFileProxyUrl(
   return `/api/review/files/${encodeURIComponent(fileId)}?${q.toString()}`;
 }
 
+/** Drive-generated preview for Google Docs, PDFs, etc. (server-fetched; link never sent to client). */
+export function buildReviewFileThumbnailUrl(
+  fileId: string,
+  token: string,
+  options?: { crasRecordId?: string | null },
+): string {
+  const q = new URLSearchParams({ token, thumb: '1' });
+  const rid = options?.crasRecordId?.trim();
+  if (rid) q.set('rid', rid);
+  return `/api/review/files/${encodeURIComponent(fileId)}?${q.toString()}`;
+}
+

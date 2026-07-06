@@ -220,6 +220,27 @@ function keyFrom(token: string, driveFileId: string): string {
   return `${token}::${driveFileId}`;
 }
 
+/** Lookup a CRAS status row by portal token + Drive file id (matches {@link listAssetStatuses} keys). */
+export function statusRecordForDriveFile(
+  statusMap: Map<string, StatusRecord>,
+  token: string,
+  driveFileId: string,
+): StatusRecord | undefined {
+  return statusMap.get(keyFrom(token.trim(), driveFileId.trim()));
+}
+
+function isMuxReadyForPortal(rec: StatusRecord): boolean {
+  return (rec.muxStatus ?? '').toLowerCase() === 'ready' && Boolean(rec.muxPlaybackId?.trim());
+}
+
+function preferDuplicateStatusRecord(existing: StatusRecord, incoming: StatusRecord): StatusRecord {
+  if (!existing.assetApprovedClient && incoming.assetApprovedClient) return incoming;
+  if (existing.assetApprovedClient && !incoming.assetApprovedClient) return existing;
+  if (isMuxReadyForPortal(incoming) && !isMuxReadyForPortal(existing)) return incoming;
+  if (isMuxReadyForPortal(existing) && !isMuxReadyForPortal(incoming)) return existing;
+  return existing;
+}
+
 /** Drive file ids are URL-safe alphanumerics; Airtable record ids are `rec…` and are not Drive ids. */
 const DRIVE_FILE_ID_LIKE = /^[a-zA-Z0-9_-]{15,}$/;
 
@@ -673,10 +694,7 @@ export async function listAssetStatuses(token: string): Promise<Map<string, Stat
         duplicateCount++;
         // Prefer the approved record; if both same approval state, keep the existing (older) one
         const newRec = recordToStatus(r as { id: string; fields: Record<string, unknown> }, token, driveFileId);
-        if (!existing.assetApprovedClient && newRec.assetApprovedClient) {
-          map.set(key, newRec);
-        }
-        // Otherwise keep existing (which was approved or came first)
+        map.set(key, preferDuplicateStatusRecord(existing, newRec));
       } else {
         map.set(key, recordToStatus(r as { id: string; fields: Record<string, unknown> }, token, driveFileId));
       }
