@@ -22,7 +22,11 @@ import {
 } from '@/lib/review/client/transcodeForPortalPreview';
 import { REVIEW_APPROVE_BUTTON_CLASS, REVIEW_APPROVED_INDICATOR_CLASS } from './reviewAssetUtils';
 import MuxPlayer from '@mux/mux-player-react';
-import { parseMuxAspectDimensions, reviewTacticPrefersAnimatedMuxPreview } from '@/lib/review/muxThumbnail';
+import {
+  muxAnimatedPreviewUrls,
+  parseMuxAspectDimensions,
+  reviewTacticPrefersAnimatedMuxPreview,
+} from '@/lib/review/muxThumbnail';
 
 type VideoBoxPhase = 'native' | 'transcoding' | 'h264' | 'unavailable';
 
@@ -35,6 +39,66 @@ function muxPlayerViewportBoxStyle(muxAspectRatio: string | null | undefined): C
     aspectRatio: cssRatio,
     margin: '0 auto',
   };
+}
+
+/**
+ * Display banner lightbox preview: same Mux animated.webp/gif chain as grid cards.
+ * MuxPlayer autoplay is unreliable under browser policies; animated images always loop.
+ */
+function LightboxMuxAnimatedPreview({
+  playbackId,
+  alt,
+  muxAspectRatio,
+}: {
+  playbackId: string;
+  alt: string;
+  muxAspectRatio?: string | null;
+}) {
+  const urls = muxAnimatedPreviewUrls(playbackId, { width: 960 });
+  const [urlIndex, setUrlIndex] = useState(0);
+  const [exhausted, setExhausted] = useState(false);
+
+  useEffect(() => {
+    setUrlIndex(0);
+    setExhausted(false);
+  }, [playbackId]);
+
+  if (exhausted || urls.length === 0) {
+    return (
+      <div style={muxPlayerViewportBoxStyle(muxAspectRatio)} className="min-h-0 min-w-0 shrink-0">
+        <MuxPlayer
+          playbackId={playbackId}
+          streamType="on-demand"
+          autoPlay="muted"
+          muted
+          loop
+          playsInline
+          style={{ width: '100%', height: '100%', objectFit: 'contain' }}
+        />
+      </div>
+    );
+  }
+
+  const src = urls[urlIndex];
+  return (
+    <div style={muxPlayerViewportBoxStyle(muxAspectRatio)} className="min-h-0 min-w-0 shrink-0 overflow-hidden">
+      {/* eslint-disable-next-line @next/next/no-img-element */}
+      <img
+        key={src}
+        src={src}
+        alt={alt}
+        decoding="async"
+        className="h-full w-full object-contain"
+        onError={() => {
+          if (urlIndex < urls.length - 1) {
+            setUrlIndex((i) => i + 1);
+            return;
+          }
+          setExhausted(true);
+        }}
+      />
+    </div>
+  );
 }
 
 function LightboxVideoPreview({ src, fileName }: { src: string; fileName: string }) {
@@ -643,15 +707,20 @@ export default function AssetLightbox({
               const ms = (asset.muxStatus ?? '').toLowerCase();
               const pid = asset.muxPlaybackId?.trim();
               if (pid && ms === 'ready') {
-                const displayLoop = reviewTacticPrefersAnimatedMuxPreview(tactic);
+                if (reviewTacticPrefersAnimatedMuxPreview(tactic)) {
+                  return (
+                    <LightboxMuxAnimatedPreview
+                      playbackId={pid}
+                      alt={asset.name}
+                      muxAspectRatio={asset.muxAspectRatio}
+                    />
+                  );
+                }
                 return (
                   <div style={muxPlayerViewportBoxStyle(asset.muxAspectRatio)} className="min-h-0 min-w-0 shrink-0">
                     <MuxPlayer
                       playbackId={pid}
                       streamType="on-demand"
-                      autoPlay={displayLoop}
-                      muted={displayLoop}
-                      loop={displayLoop}
                       style={{ width: '100%', height: '100%', objectFit: 'contain' }}
                     />
                   </div>
