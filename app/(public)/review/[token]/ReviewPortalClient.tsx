@@ -8,10 +8,11 @@
 // - If variant has 0 total files: single empty-state card, no per-tactic list
 // - If variant has files: show tactics with files; hide empty tactics behind toggle
 
-import { useCallback, useEffect, useMemo, useRef, useState, Suspense } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, useTransition, Suspense } from 'react';
 import { useRouter, useSearchParams, usePathname } from 'next/navigation';
 import HiveLogo from '@/components/HiveLogo';
 import ReviewSection from './ReviewSection';
+import LazyMountSection from './LazyMountSection';
 import { AuthorIdentityProvider, useAuthorIdentity } from './AuthorIdentityContext';
 import { mergeReviewSections } from '@/lib/review/mergeReviewSections';
 import {
@@ -247,6 +248,7 @@ function ReviewPortalClientInner({
   const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
+  const [, startFilterTransition] = useTransition();
   const filterParam = searchParams.get('filter');
   const variantParam = searchParams.get('variant');
   const isQueueView = filterParam === 'pending' || filterParam === 'all';
@@ -301,15 +303,21 @@ function ReviewPortalClientInner({
         params.set('variant', updates.variant);
       }
       const qs = params.toString();
-      router.replace(qs ? `${pathname}?${qs}` : pathname, { scroll: false });
+      const href = qs ? `${pathname}?${qs}` : pathname;
+      // Keep the click responsive; pending-queue remounts are expensive.
+      startFilterTransition(() => {
+        router.replace(href, { scroll: false });
+      });
     },
-    [router, pathname, searchParams]
+    [router, pathname, searchParams, startFilterTransition]
   );
 
   const enterReviewQueue = useCallback(() => {
-    // TODO: analytics — track banner "Review pending" click
-    updateReviewUrl({ filter: 'pending', variant: null });
-  }, [updateReviewUrl]);
+    // Scope to the campaign type the reviewer is already browsing so we don't
+    // suddenly mount Prospecting + Retargeting (and their Mux posters) at once.
+    // They can switch to "All" via the campaign-type chips.
+    updateReviewUrl({ filter: 'pending', variant: activeVariant });
+  }, [updateReviewUrl, activeVariant]);
 
   const setQueueFilter = useCallback(
     (filter: AssetListFilter) => {
@@ -1069,34 +1077,35 @@ function ReviewPortalClientInner({
           />
         ) : (
           <>
-            {sectionsToRender.map((section) => {
+            {sectionsToRender.map((section, sectionIndex) => {
               const feedbackKey = `${section.variant}:${section.tactic}`;
               return (
-                <ReviewSection
-                  key={feedbackKey}
-                  variant={section.variant}
-                  tactic={section.tactic}
-                  assets={section.assets}
-                  fileCount={section.fileCount}
-                  token={token}
-                  initialFeedback={
-                    reviewData[feedbackKey] ?? { approved: false, comments: '' }
-                  }
-                  groupId={section.groupId}
-                  onAssetStatusChange={updateAssetReviewState}
-                  groupApprovalApprovedAt={section.groupApprovalApprovedAt}
-                  groupApprovalApprovedByName={section.groupApprovalApprovedByName}
-                  newSinceApprovalCount={section.newSinceApprovalCount}
-                  onGroupApproved={updateGroupApproval}
-                  selectedFileIds={selectedFileIds}
-                  onToggleSelect={toggleSelection}
-                  onSelectAllUnapprovedInSection={selectAllUnapprovedInSection}
-                  onSelectNewInSection={selectNewInSection}
-                  onSingleAssetApprovedResult={handleSingleAssetApprovedResult}
-                  deliveryBatchId={deliveryContext?.deliveryBatchId}
-                  onPartnerDownload={deliveryContext ? handleMarkDownloaded : undefined}
-                  onDownloadAsset={deliveryContext ? handleDownloadAsset : undefined}
-                />
+                <LazyMountSection key={feedbackKey} eager={sectionIndex < 2}>
+                  <ReviewSection
+                    variant={section.variant}
+                    tactic={section.tactic}
+                    assets={section.assets}
+                    fileCount={section.fileCount}
+                    token={token}
+                    initialFeedback={
+                      reviewData[feedbackKey] ?? { approved: false, comments: '' }
+                    }
+                    groupId={section.groupId}
+                    onAssetStatusChange={updateAssetReviewState}
+                    groupApprovalApprovedAt={section.groupApprovalApprovedAt}
+                    groupApprovalApprovedByName={section.groupApprovalApprovedByName}
+                    newSinceApprovalCount={section.newSinceApprovalCount}
+                    onGroupApproved={updateGroupApproval}
+                    selectedFileIds={selectedFileIds}
+                    onToggleSelect={toggleSelection}
+                    onSelectAllUnapprovedInSection={selectAllUnapprovedInSection}
+                    onSelectNewInSection={selectNewInSection}
+                    onSingleAssetApprovedResult={handleSingleAssetApprovedResult}
+                    deliveryBatchId={deliveryContext?.deliveryBatchId}
+                    onPartnerDownload={deliveryContext ? handleMarkDownloaded : undefined}
+                    onDownloadAsset={deliveryContext ? handleDownloadAsset : undefined}
+                  />
+                </LazyMountSection>
               );
             })}
 
