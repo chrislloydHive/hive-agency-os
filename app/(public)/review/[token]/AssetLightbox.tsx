@@ -22,7 +22,7 @@ import {
 } from '@/lib/review/client/transcodeForPortalPreview';
 import { REVIEW_APPROVE_BUTTON_CLASS, REVIEW_APPROVED_INDICATOR_CLASS } from './reviewAssetUtils';
 import MuxPlayer from '@mux/mux-player-react';
-import { parseMuxAspectDimensions } from '@/lib/review/muxThumbnail';
+import { parseMuxAspectDimensions, reviewTacticPrefersAnimatedMuxPreview } from '@/lib/review/muxThumbnail';
 
 type VideoBoxPhase = 'native' | 'transcoding' | 'h264' | 'unavailable';
 
@@ -643,11 +643,15 @@ export default function AssetLightbox({
               const ms = (asset.muxStatus ?? '').toLowerCase();
               const pid = asset.muxPlaybackId?.trim();
               if (pid && ms === 'ready') {
+                const displayLoop = reviewTacticPrefersAnimatedMuxPreview(tactic);
                 return (
                   <div style={muxPlayerViewportBoxStyle(asset.muxAspectRatio)} className="min-h-0 min-w-0 shrink-0">
                     <MuxPlayer
                       playbackId={pid}
                       streamType="on-demand"
+                      autoPlay={displayLoop}
+                      muted={displayLoop}
+                      loop={displayLoop}
                       style={{ width: '100%', height: '100%', objectFit: 'contain' }}
                     />
                   </div>

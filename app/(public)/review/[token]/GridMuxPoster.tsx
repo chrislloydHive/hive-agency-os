@@ -1,11 +1,14 @@
 'use client';
 
-import { muxPortalPosterDisplayUrls } from '@/lib/review/muxThumbnail';
+import { muxPortalPosterUrls } from '@/lib/review/muxThumbnail';
 import { useEffect, useMemo, useState, type ReactNode } from 'react';
 
 /**
  * Grid video poster from image.mux.com (lightweight; dozens of MuxPlayer instances
  * overload the browser and leave tiles blank).
+ *
+ * When {@link animated} is true (Display banner MP4s), prefers Mux animated.webp/gif
+ * so the card loops like a GIF without mounting a player.
  */
 export default function GridMuxPoster({
   playbackId,
@@ -13,6 +16,7 @@ export default function GridMuxPoster({
   className = 'absolute inset-0 h-full w-full object-cover',
   layout = 'grid',
   muxAspectRatio,
+  animated = false,
   fallback,
 }: {
   playbackId: string;
@@ -20,12 +24,14 @@ export default function GridMuxPoster({
   className?: string;
   layout?: 'grid' | 'carousel';
   muxAspectRatio?: string | null;
+  /** Prefer Mux animated.webp/gif before static thumbnail frames. */
+  animated?: boolean;
   /** Rendered when every Mux poster URL fails (e.g. signed playback id). */
   fallback?: ReactNode;
 }) {
   const urls = useMemo(
-    () => muxPortalPosterDisplayUrls(playbackId, layout, muxAspectRatio),
-    [playbackId, layout, muxAspectRatio],
+    () => muxPortalPosterUrls(playbackId, layout, { muxAspectRatio, animated }),
+    [playbackId, layout, muxAspectRatio, animated],
   );
   const [urlIndex, setUrlIndex] = useState(0);
   const [exhausted, setExhausted] = useState(false);

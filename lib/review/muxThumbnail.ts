@@ -128,6 +128,7 @@ export function muxPortalPosterWarmUrls(
 ): string[] {
   return [
     ...new Set([
+      ...muxAnimatedPreviewUrls(playbackId, { width: 480 }),
       ...muxPortalPosterDisplayUrls(playbackId, 'grid', muxAspectRatio),
       ...muxPortalPosterDisplayUrls(playbackId, 'carousel', muxAspectRatio),
     ]),
@@ -143,6 +144,47 @@ export function muxPortalPosterDisplayUrls(
   const base = layout === 'carousel' ? muxCarouselPosterUrls(playbackId) : muxGridPosterUrls(playbackId);
   const fallbacks = muxPosterFallbackUrls(playbackId, muxAspectRatio, layout);
   return [...new Set([...base, ...fallbacks])];
+}
+
+/**
+ * Mux animated preview for short looping creatives (Display banner MP4s).
+ * Prefer WebP (smaller); GIF as fallback. Renders in a normal <img> so cards animate
+ * without mounting MuxPlayer instances.
+ * @see https://docs.mux.com/guides/video/get-images-from-a-video#animated-gifs
+ */
+export function muxAnimatedPreviewUrls(
+  playbackId: string,
+  opts?: { width?: number; fps?: number },
+): string[] {
+  const id = playbackId.trim();
+  if (!id) return [];
+  const width = opts?.width ?? 480;
+  const fps = opts?.fps ?? 10;
+  const common = new URLSearchParams({
+    width: String(width),
+    fps: String(fps),
+  });
+  return [
+    `https://image.mux.com/${id}/animated.webp?${common.toString()}`,
+    `https://image.mux.com/${id}/animated.gif?${common.toString()}`,
+  ];
+}
+
+/** Display-tactic video cards should animate in-grid like GIF banners. */
+export function reviewTacticPrefersAnimatedMuxPreview(tactic: string | null | undefined): boolean {
+  return (tactic ?? '').trim().toLowerCase() === 'display';
+}
+
+/** Poster chain for grid/carousel, optionally leading with animated Mux previews. */
+export function muxPortalPosterUrls(
+  playbackId: string,
+  layout: 'grid' | 'carousel',
+  opts?: { muxAspectRatio?: string | null; animated?: boolean },
+): string[] {
+  const staticUrls = muxPortalPosterDisplayUrls(playbackId, layout, opts?.muxAspectRatio);
+  if (!opts?.animated) return staticUrls;
+  const animatedWidth = layout === 'carousel' ? 280 : 480;
+  return [...new Set([...muxAnimatedPreviewUrls(playbackId, { width: animatedWidth }), ...staticUrls])];
 }
 
 /** Wide leaderboard / banner creatives: crop for readable grid tiles instead of ~30px-tall strips. */

@@ -4,6 +4,9 @@ import {
   muxGridPosterUrls,
   muxCarouselPosterUrls,
   muxPortalPosterWarmUrls,
+  muxAnimatedPreviewUrls,
+  muxPortalPosterUrls,
+  reviewTacticPrefersAnimatedMuxPreview,
   MUX_PORTAL_GRID_POSTER,
 } from '@/lib/review/muxThumbnail';
 
@@ -28,5 +31,25 @@ describe('muxThumbnailUrl', () => {
     for (const url of [...grid, ...carousel]) {
       expect(warm).toContain(url);
     }
+  });
+
+  it('muxAnimatedPreviewUrls prefers webp then gif', () => {
+    const urls = muxAnimatedPreviewUrls('pb_abc', { width: 480 });
+    expect(urls[0]).toContain('/animated.webp?');
+    expect(urls[0]).toContain('width=480');
+    expect(urls[1]).toContain('/animated.gif?');
+  });
+
+  it('muxPortalPosterUrls leads with animated when requested', () => {
+    const urls = muxPortalPosterUrls('pb_abc', 'grid', { animated: true });
+    expect(urls[0]).toContain('/animated.webp?');
+    expect(urls).toContain(muxThumbnailUrl('pb_abc'));
+  });
+
+  it('reviewTacticPrefersAnimatedMuxPreview is Display-only', () => {
+    expect(reviewTacticPrefersAnimatedMuxPreview('Display')).toBe(true);
+    expect(reviewTacticPrefersAnimatedMuxPreview('display')).toBe(true);
+    expect(reviewTacticPrefersAnimatedMuxPreview('Video')).toBe(false);
+    expect(reviewTacticPrefersAnimatedMuxPreview('Social')).toBe(false);
   });
 });
