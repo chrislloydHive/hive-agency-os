@@ -33,10 +33,12 @@ describe('muxThumbnailUrl', () => {
     }
   });
 
-  it('muxAnimatedPreviewUrls prefers webp then gif', () => {
-    const urls = muxAnimatedPreviewUrls('pb_abc', { width: 480 });
+  it('muxAnimatedPreviewUrls prefers webp then gif and clamps width', () => {
+    const urls = muxAnimatedPreviewUrls('pb_abc', { width: 960 });
     expect(urls[0]).toContain('/animated.webp?');
-    expect(urls[0]).toContain('width=480');
+    expect(urls[0]).toContain('width=640');
+    expect(urls[0]).toContain('fps=8');
+    expect(urls[0]).toContain('end=4');
     expect(urls[1]).toContain('/animated.gif?');
   });
 

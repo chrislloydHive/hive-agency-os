@@ -5,7 +5,7 @@
 // Supports images, video, and audio. ESC to close, arrow keys to navigate.
 // Includes per-asset commenting with required author identity.
 
-import { useCallback, useEffect, useRef, useState, type CSSProperties } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from 'react';
 import { useAuthorIdentity, type AuthorIdentity } from './AuthorIdentityContext';
 import {
   buildReviewFileProxyUrl,
@@ -24,6 +24,7 @@ import { REVIEW_APPROVE_BUTTON_CLASS, REVIEW_APPROVED_INDICATOR_CLASS } from './
 import MuxPlayer from '@mux/mux-player-react';
 import {
   muxAnimatedPreviewUrls,
+  muxThumbnailUrl,
   parseMuxAspectDimensions,
   reviewTacticPrefersAnimatedMuxPreview,
 } from '@/lib/review/muxThumbnail';
@@ -41,9 +42,31 @@ function muxPlayerViewportBoxStyle(muxAspectRatio: string | null | undefined): C
   };
 }
 
+/** Display ads should read at near-ad-unit scale, not fill the viewport like a feature film. */
+function displayBannerLightboxBoxStyle(muxAspectRatio: string | null | undefined): CSSProperties {
+  const { cssRatio, widthNum, heightNum } = parseMuxAspectDimensions(muxAspectRatio);
+  const ratio = widthNum / heightNum;
+  // Cap the long edge so a 300x250 / 728x90 / 160x600 stays reviewable, not enormous.
+  const maxLongEdgePx = 560;
+  if (ratio >= 1) {
+    return {
+      maxWidth: `min(100%, ${maxLongEdgePx}px)`,
+      width: `min(100%, ${maxLongEdgePx}px)`,
+      aspectRatio: cssRatio,
+      margin: '0 auto',
+    };
+  }
+  return {
+    maxHeight: `min(70vh, ${maxLongEdgePx}px)`,
+    width: `min(100%, calc(${maxLongEdgePx}px * ${widthNum} / ${heightNum}))`,
+    aspectRatio: cssRatio,
+    margin: '0 auto',
+  };
+}
+
 /**
- * Display banner lightbox preview: same Mux animated.webp/gif chain as grid cards.
- * MuxPlayer autoplay is unreliable under browser policies; animated images always loop.
+ * Display banner lightbox: show a static Mux frame immediately, then swap to
+ * animated.webp (gif fallback). Avoids blank wait while Mux generates the loop.
  */
 function LightboxMuxAnimatedPreview({
   playbackId,
@@ -54,18 +77,55 @@ function LightboxMuxAnimatedPreview({
   alt: string;
   muxAspectRatio?: string | null;
 }) {
-  const urls = muxAnimatedPreviewUrls(playbackId, { width: 960 });
-  const [urlIndex, setUrlIndex] = useState(0);
-  const [exhausted, setExhausted] = useState(false);
+  const posterUrl = muxThumbnailUrl(playbackId, { width: 640, height: 360, fitMode: 'smartcrop', time: 1.5 });
+  const animatedUrls = useMemo(
+    () => muxAnimatedPreviewUrls(playbackId, { width: 640, fps: 8, endSeconds: 4 }),
+    [playbackId],
+  );
+  const [animIndex, setAnimIndex] = useState(0);
+  const [animReady, setAnimReady] = useState(false);
+  const [animExhausted, setAnimExhausted] = useState(false);
+  const boxStyle = displayBannerLightboxBoxStyle(muxAspectRatio);
 
   useEffect(() => {
-    setUrlIndex(0);
-    setExhausted(false);
+    setAnimIndex(0);
+    setAnimReady(false);
+    setAnimExhausted(false);
   }, [playbackId]);
 
-  if (exhausted || urls.length === 0) {
+  // Preload animated URL so we can swap atomically when ready.
+  useEffect(() => {
+    if (animExhausted) return;
+    const url = animatedUrls[animIndex];
+    if (!url) {
+      setAnimExhausted(true);
+      return;
+    }
+    let cancelled = false;
+    const img = new window.Image();
+    img.onload = () => {
+      if (!cancelled) setAnimReady(true);
+    };
+    img.onerror = () => {
+      if (cancelled) return;
+      if (animIndex < animatedUrls.length - 1) {
+        setAnimIndex((i) => i + 1);
+        setAnimReady(false);
+      } else {
+        setAnimExhausted(true);
+      }
+    };
+    img.src = url;
+    return () => {
+      cancelled = true;
+      img.onload = null;
+      img.onerror = null;
+    };
+  }, [playbackId, animIndex, animExhausted, animatedUrls]);
+
+  if (animExhausted && !animReady) {
     return (
-      <div style={muxPlayerViewportBoxStyle(muxAspectRatio)} className="min-h-0 min-w-0 shrink-0">
+      <div style={boxStyle} className="min-h-0 min-w-0 shrink-0">
         <MuxPlayer
           playbackId={playbackId}
           streamType="on-demand"
@@ -79,9 +139,9 @@ function LightboxMuxAnimatedPreview({
     );
   }
 
-  const src = urls[urlIndex];
+  const src = animReady ? animatedUrls[animIndex] : posterUrl;
   return (
-    <div style={muxPlayerViewportBoxStyle(muxAspectRatio)} className="min-h-0 min-w-0 shrink-0 overflow-hidden">
+    <div style={boxStyle} className="min-h-0 min-w-0 shrink-0 overflow-hidden rounded-md bg-gray-900">
       {/* eslint-disable-next-line @next/next/no-img-element */}
       <img
         key={src}
@@ -89,13 +149,6 @@ function LightboxMuxAnimatedPreview({
         alt={alt}
         decoding="async"
         className="h-full w-full object-contain"
-        onError={() => {
-          if (urlIndex < urls.length - 1) {
-            setUrlIndex((i) => i + 1);
-            return;
-          }
-          setExhausted(true);
-        }}
       />
     </div>
   );

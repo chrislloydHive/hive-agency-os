@@ -128,7 +128,7 @@ export function muxPortalPosterWarmUrls(
 ): string[] {
   return [
     ...new Set([
-      ...muxAnimatedPreviewUrls(playbackId, { width: 480 }),
+      ...muxAnimatedPreviewUrls(playbackId, { width: 640 }),
       ...muxPortalPosterDisplayUrls(playbackId, 'grid', muxAspectRatio),
       ...muxPortalPosterDisplayUrls(playbackId, 'carousel', muxAspectRatio),
     ]),
@@ -150,19 +150,28 @@ export function muxPortalPosterDisplayUrls(
  * Mux animated preview for short looping creatives (Display banner MP4s).
  * Prefer WebP (smaller); GIF as fallback. Renders in a normal <img> so cards animate
  * without mounting MuxPlayer instances.
+ *
+ * Mux rejects animated width > 640. Keep fps/end modest so first paint is fast.
  * @see https://docs.mux.com/guides/video/get-images-from-a-video#animated-gifs
  */
+export const MUX_ANIMATED_PREVIEW_MAX_WIDTH = 640;
+
 export function muxAnimatedPreviewUrls(
   playbackId: string,
-  opts?: { width?: number; fps?: number },
+  opts?: { width?: number; fps?: number; endSeconds?: number },
 ): string[] {
   const id = playbackId.trim();
   if (!id) return [];
-  const width = opts?.width ?? 480;
-  const fps = opts?.fps ?? 10;
+  const width = Math.min(
+    MUX_ANIMATED_PREVIEW_MAX_WIDTH,
+    Math.max(120, Math.round(opts?.width ?? 480)),
+  );
+  const fps = opts?.fps ?? 8;
+  const endSeconds = opts?.endSeconds ?? 4;
   const common = new URLSearchParams({
     width: String(width),
     fps: String(fps),
+    end: String(endSeconds),
   });
   return [
     `https://image.mux.com/${id}/animated.webp?${common.toString()}`,
