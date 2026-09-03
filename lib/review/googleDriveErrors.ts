@@ -37,6 +37,22 @@ export function flattenGoogleDriveError(err: unknown): string {
   return chunks.join(' ');
 }
 
+function driveErrorStatus(err: unknown): number | undefined {
+  if (err && typeof err === 'object' && 'code' in err) {
+    const code = (err as { code?: unknown }).code;
+    if (typeof code === 'number') return code;
+    if (typeof code === 'string' && /^\d+$/.test(code)) return Number(code);
+  }
+  const status = (err as { response?: { status?: number } })?.response?.status;
+  return typeof status === 'number' ? status : undefined;
+}
+
+/** True when both OAuth and service-account Drive lookups failed because the file is gone. */
+export function isDriveNotFoundError(err: unknown): boolean {
+  if (driveErrorStatus(err) === 404) return true;
+  return /(?:^|\s)404(?:\s|:)|not found|file not found|notFound/i.test(flattenGoogleDriveError(err));
+}
+
 /** True when a Drive request should be retried with the service account. */
 export function driveErrorsSuggestServiceAccountFallback(err: unknown): boolean {
   const code =

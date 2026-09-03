@@ -72,6 +72,82 @@ export interface ReviewFolderMapResult {
   jobFolderId: string;
 }
 
+export interface ReviewVariantFile {
+  id: string;
+  name: string;
+  tactic: string;
+  variant: string;
+  folderId: string;
+}
+
+/**
+ * Resolve tactic→variant leaf folders from a Creative Review Hub / job folder.
+ * Tries the hub itself (job → tactic → variant), then `Client Review` nested under it.
+ */
+export async function resolveReviewVariantFolderMap(
+  drive: drive_v3.Drive,
+  hubFolderId: string,
+): Promise<ReviewFolderMapResult> {
+  const fromHub = await getReviewFolderMapFromJobFolderPartial(drive, hubFolderId);
+  if (fromHub.map.size > 0) return fromHub;
+  const clientReviewFolderId = await getChildFolderId(drive, hubFolderId, 'Client Review');
+  if (!clientReviewFolderId) return fromHub;
+  return getReviewFolderMapFromJobFolderPartial(drive, clientReviewFolderId);
+}
+
+async function listDirectNonFolderFiles(
+  drive: drive_v3.Drive,
+  folderId: string,
+): Promise<Array<{ id: string; name: string }>> {
+  const out: Array<{ id: string; name: string }> = [];
+  let pageToken: string | undefined;
+  do {
+    const res = await drive.files.list({
+      q: `'${folderId}' in parents and mimeType != 'application/vnd.google-apps.folder' and trashed = false`,
+      fields: 'nextPageToken, files(id, name)',
+      supportsAllDrives: true,
+      includeItemsFromAllDrives: true,
+      pageSize: 1000,
+      pageToken,
+    });
+    for (const f of res.data.files ?? []) {
+      if (f.id) out.push({ id: f.id, name: f.name ?? '' });
+    }
+    pageToken = res.data.nextPageToken ?? undefined;
+  } while (pageToken);
+  return out;
+}
+
+/**
+ * Direct children of Prospecting/Retargeting tactic folders only — not Evergreen,
+ * Promotions, or _Production Assets. Used by ingest so deleting a review file
+ * cannot be undone by a copy elsewhere in the job hub.
+ */
+export async function listFilesInReviewVariantFolders(
+  drive: drive_v3.Drive,
+  hubFolderId: string,
+): Promise<ReviewVariantFile[]> {
+  const { map } = await resolveReviewVariantFolderMap(drive, hubFolderId);
+  const out: ReviewVariantFile[] = [];
+  for (const [key, folderId] of map.entries()) {
+    const sep = key.indexOf(':');
+    const variant = sep >= 0 ? key.slice(0, sep) : '';
+    const tactic = sep >= 0 ? key.slice(sep + 1) : '';
+    if (!variant || !tactic) continue;
+    const files = await listDirectNonFolderFiles(drive, folderId);
+    for (const file of files) {
+      out.push({
+        id: file.id,
+        name: file.name,
+        tactic,
+        variant,
+        folderId,
+      });
+    }
+  }
+  return out;
+}
+
 /**
  * Build folder map: variant:tactic -> variant folder id (leaf).
  * Path: rootFolderId → Client Review → hubName (job) → tactic → variant.

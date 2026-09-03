@@ -246,25 +246,12 @@ export default async function ReviewPage({
     }
   }
 
-  // Enrich Drive-listed assets with CRAS (Mux posters, review state) for first paint
-  try {
-    const statusMap = await listAssetStatuses(token);
-    sections = enrichReviewSectionsFromCras(sections, statusMap, token).map((sec) => ({
-      ...sec,
-      fileCount: sec.assets.length,
-    }));
-  } catch (err) {
-    console.warn('[review/page] CRAS enrich for SSR failed (non-fatal):', err instanceof Error ? err.message : err);
-  }
-
-  // Batch ensure CRAS records exist for all displayed assets
-  // CRAS records are created BEFORE approval - this sync runs on portal load
+  // Batch ensure CRAS records exist for all Drive-listed files BEFORE first paint
+  // so visibility flags (Show in Client Portal) apply to Google Docs as well as video.
   if (allAssetsForCras.length > 0) {
     try {
-      // Collect folder IDs for logging
       const folderIds = Array.from(folderMap.values()).map(f => f.folderId);
 
-      // Log every file found from Drive so we can track which ones get CRAS records
       console.log(`[review/page] Drive files found for CRAS sync`, {
         projectId: project.recordId,
         totalFiles: allAssetsForCras.length,
@@ -281,9 +268,20 @@ export default async function ReviewPage({
         recordsErrors: result.errors,
       });
     } catch (err) {
-      // Log but don't fail page load - assets will still display
       console.error('[review/page] Failed to ensure CRAS records:', err);
     }
+  }
+
+  // Enrich after ensure so newly created rows are included, and unchecked
+  // "Show in Client Portal" rows (including YouTube Links docs) are dropped.
+  try {
+    const statusMap = await listAssetStatuses(token);
+    sections = enrichReviewSectionsFromCras(sections, statusMap, token).map((sec) => ({
+      ...sec,
+      fileCount: sec.assets.length,
+    }));
+  } catch (err) {
+    console.warn('[review/page] CRAS enrich for SSR failed (non-fatal):', err instanceof Error ? err.message : err);
   }
 
   return (

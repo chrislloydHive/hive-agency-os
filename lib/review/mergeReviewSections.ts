@@ -1,7 +1,8 @@
 /**
  * Merge refreshed /api/review/assets sections into existing portal state.
- * Keeps Drive-discovered SSR assets when CRAS has not caught up yet, while preferring
- * API fields (Mux, review state, airtableRecordId) for matching fileIds.
+ * Incoming (API) is the source of truth for which fileIds belong in a section,
+ * so unchecking "Show in Client Portal" in Airtable actually removes the asset.
+ * Matching fileIds keep previous fields then overlay API fields (Mux, review state).
  */
 
 export type MergeableReviewAsset = {
@@ -32,7 +33,9 @@ function sortAssetsNewestFirst(assets: MergeableReviewAsset[]): MergeableReviewA
 }
 
 /**
- * Union assets by fileId. Incoming (API) wins field conflicts; previous-only assets are retained.
+ * Incoming (API) wins file membership for a section. Previous-only assets are
+ * dropped so Airtable visibility flags are not undone by Drive SSR leftovers.
+ * Incoming wins field conflicts on matching fileIds.
  */
 export function mergeReviewSections<T extends MergeableTacticSection>(
   previous: T[],
@@ -56,12 +59,10 @@ export function mergeReviewSections<T extends MergeableTacticSection>(
     }
     if (!prevSec || !incSec) continue;
 
+    const prevByFileId = new Map(prevSec.assets.map((a) => [a.fileId, a]));
     const byFileId = new Map<string, MergeableReviewAsset>();
-    for (const a of prevSec.assets) {
-      byFileId.set(a.fileId, { ...a });
-    }
     for (const a of incSec.assets) {
-      const existing = byFileId.get(a.fileId);
+      const existing = prevByFileId.get(a.fileId);
       byFileId.set(a.fileId, existing ? { ...existing, ...a } : { ...a });
     }
 

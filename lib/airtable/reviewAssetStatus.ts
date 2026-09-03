@@ -25,6 +25,9 @@ import {
   CRAS_MUX_PLAYBACK_ID_FIELD,
   CRAS_MUX_STATUS_FIELD,
 } from '@/lib/mux/crasMuxFields';
+import {
+  normalizePortalAssetName,
+} from '@/lib/review/reviewPortalVisibility';
 
 const TABLE = AIRTABLE_TABLES.CREATIVE_REVIEW_ASSET_STATUS;
 
@@ -216,6 +219,43 @@ export interface StatusRecord {
   muxAspectRatio: string | null;
 }
 
+/**
+ * Airtable checkboxes are omitted when unchecked; lookups may return arrays.
+ * Only an explicit true-ish value counts as checked.
+ */
+export function parseAirtableCheckbox(raw: unknown): boolean {
+  if (raw === true || raw === 1 || raw === 'true' || raw === 'checked') return true;
+  if (Array.isArray(raw)) return raw.some((item) => parseAirtableCheckbox(item));
+  if (raw && typeof raw === 'object' && 'value' in raw) {
+    return parseAirtableCheckbox((raw as { value: unknown }).value);
+  }
+  return false;
+}
+
+const SHOW_IN_CLIENT_PORTAL_FIELD_ALIASES = [
+  'Show in Client Portal',
+  'Show In Client Portal',
+  'Show on Client Portal',
+  'Visible in Client Portal',
+] as const;
+
+function readShowInClientPortalField(fields: Record<string, unknown>): unknown {
+  for (const name of SHOW_IN_CLIENT_PORTAL_FIELD_ALIASES) {
+    if (fields[name] !== undefined) return fields[name];
+  }
+  return undefined;
+}
+
+/**
+ * Whether a CRAS row should appear in the client review portal.
+ * Hidden is always excluded. "Show in Client Portal" must be checked —
+ * an unchecked box (Airtable omits the field) hides the asset.
+ */
+export function isStatusRecordVisibleInPortal(rec: StatusRecord): boolean {
+  if (rec.hidden) return false;
+  return rec.showInClientPortal === true;
+}
+
 function keyFrom(token: string, driveFileId: string): string {
   return `${token}::${driveFileId}`;
 }
@@ -234,11 +274,19 @@ function isMuxReadyForPortal(rec: StatusRecord): boolean {
 }
 
 function preferDuplicateStatusRecord(existing: StatusRecord, incoming: StatusRecord): StatusRecord {
-  if (!existing.assetApprovedClient && incoming.assetApprovedClient) return incoming;
-  if (existing.assetApprovedClient && !incoming.assetApprovedClient) return existing;
-  if (isMuxReadyForPortal(incoming) && !isMuxReadyForPortal(existing)) return incoming;
-  if (isMuxReadyForPortal(existing) && !isMuxReadyForPortal(incoming)) return existing;
-  return existing;
+  let picked: StatusRecord;
+  if (!existing.assetApprovedClient && incoming.assetApprovedClient) picked = incoming;
+  else if (existing.assetApprovedClient && !incoming.assetApprovedClient) picked = existing;
+  else if (isMuxReadyForPortal(incoming) && !isMuxReadyForPortal(existing)) picked = incoming;
+  else if (isMuxReadyForPortal(existing) && !isMuxReadyForPortal(incoming)) picked = existing;
+  else picked = existing;
+  // Unchecked / Hidden on either duplicate must win — otherwise the portal keeps
+  // showing a file after the row the user edited is not the mux/approved duplicate.
+  return {
+    ...picked,
+    hidden: existing.hidden || incoming.hidden,
+    showInClientPortal: existing.showInClientPortal && incoming.showInClientPortal,
+  };
 }
 
 /** Drive file ids are URL-safe alphanumerics; Airtable record ids are `rec…` and are not Drive ids. */
@@ -256,6 +304,8 @@ function extractDriveFileIdFromCrasSourceField(raw: unknown): string {
   }
   if (typeof raw === 'string') {
     const t = raw.trim();
+    const fromUrl = t.match(/\/d\/([a-zA-Z0-9_-]{15,})/) ?? t.match(/[?&]id=([a-zA-Z0-9_-]{15,})/);
+    if (fromUrl?.[1]) return fromUrl[1];
     if (t) return t;
   }
   if (Array.isArray(raw)) {
@@ -387,12 +437,10 @@ function recordToStatus(r: { id: string; fields: Record<string, unknown> }, toke
   const variant = typeof variantRaw === 'string' && variantRaw.trim() ? variantRaw.trim() : null;
 
   // Hidden flag - explicit field to exclude from portal display
-  const hiddenRaw = f['Hidden'];
-  const hidden = hiddenRaw === true || hiddenRaw === 'true' || hiddenRaw === 1;
+  const hidden = parseAirtableCheckbox(f['Hidden']);
 
   // Show in Client Portal checkbox — controls portal visibility
-  const showInClientPortalRaw = f['Show in Client Portal'];
-  const showInClientPortal = showInClientPortalRaw === true || showInClientPortalRaw === 'true' || showInClientPortalRaw === 1;
+  const showInClientPortal = parseAirtableCheckbox(readShowInClientPortalField(f));
 
   // Placement grouping fields (for carousel/grouped assets)
   const placementGroupIdRaw = f['Placement Group ID'];
@@ -1130,6 +1178,40 @@ async function listExistingCrasFileIdsRest(
   return found;
 }
 
+async function listExistingCrasFilenamesForToken(
+  baseId: string,
+  tokenEsc: string,
+): Promise<Set<string>> {
+  const names = new Set<string>();
+  let offset: string | undefined;
+  do {
+    const params = new URLSearchParams();
+    params.set('filterByFormula', `{${REVIEW_CRAS_TOKEN_FIELD}} = "${tokenEsc}"`);
+    params.set('pageSize', '100');
+    params.append('fields[]', 'Filename');
+    if (offset) params.set('offset', offset);
+    const url = `https://api.airtable.com/v0/${baseId}/${encodeURIComponent(TABLE)}?${params.toString()}`;
+    const res = await fetchWithRetry(url, { method: 'GET' });
+    if (!res.ok) {
+      const text = await res.text();
+      throw new Error(`Airtable list CRAS filenames (${res.status}): ${text.slice(0, 400)}`);
+    }
+    const json = (await res.json()) as {
+      records?: Array<{ fields?: Record<string, unknown> }>;
+      offset?: string;
+    };
+    for (const r of json.records ?? []) {
+      const filename = r.fields?.Filename;
+      if (typeof filename === 'string' && filename.trim()) {
+        const n = normalizePortalAssetName(filename);
+        if (n) names.add(n);
+      }
+    }
+    offset = json.offset;
+  } while (offset);
+  return names;
+}
+
 async function batchCreateCrasRest(
   baseId: string,
   recordsPayload: Array<{ fields: Record<string, unknown> }>,
@@ -1206,13 +1288,23 @@ export async function batchEnsureCrasRecords(
     }
   }
 
+  const existingFilenames = new Set<string>();
+  try {
+    const names = await listExistingCrasFilenamesForToken(baseId, tokenEsc);
+    for (const n of names) existingFilenames.add(n);
+  } catch (err) {
+    console.warn('[batchEnsureCrasRecords] Failed to load existing CRAS filenames:', err);
+  }
+
   const toCreate: Array<{ fileId: string; filename?: string; tactic: string; variant: string }> = [];
   for (const asset of assets) {
-    if (!existingMap.has(asset.fileId)) {
-      toCreate.push(asset);
-    } else {
+    const nameKey = asset.filename ? normalizePortalAssetName(asset.filename) : '';
+    if (existingMap.has(asset.fileId) || (nameKey && existingFilenames.has(nameKey))) {
       skipped++;
+      continue;
     }
+    toCreate.push(asset);
+    if (nameKey) existingFilenames.add(nameKey);
   }
 
   if (toCreate.length === 0) {

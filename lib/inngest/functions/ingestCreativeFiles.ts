@@ -1,20 +1,22 @@
 // lib/inngest/functions/ingestCreativeFiles.ts
-// Scheduled cron: discover newly-uploaded files inside any project's
-// Creative Review Hub (CRH) folder and create CRAS records for them.
+// Scheduled cron: discover newly-uploaded files in Client Review variant folders
+// (Prospecting/Retargeting × tactic) and create CRAS records for them.
+// Does not scan Evergreen, Promotions, or _Production Assets — those copies
+// were recreating CRAS rows after files were deleted from the review folders.
 //
 // Runs every 5 minutes. Idempotent — files that already have CRAS records are
 // skipped both via an upfront dedupe query and via ensureCrasRecord's own
 // (Review Token + Source Folder ID) uniqueness check.
 //
 // This function is a TRIGGER ONLY. All real ingestion logic lives in
-// lib/review/ingestFileToCras.ts and is unchanged.
+// lib/review/ingestFileToCras.ts.
 
-import type { drive_v3 } from 'googleapis';
 import { inngest } from '../client';
 import { getProjectsBase } from '@/lib/airtable';
 import { AIRTABLE_TABLES } from '@/lib/airtable/tables';
 import { getDriveClient } from '@/lib/google/driveClient';
 import { getProjectsByCreativeReviewHubFolderId } from '@/lib/airtable/projectFolderMap';
+import { listFilesInReviewVariantFolders } from '@/lib/review/reviewFolders';
 import {
   ingestFilesToCras,
   type IngestFileInput,
@@ -23,170 +25,11 @@ import { ensurePartnerDeliverySetup } from '@/lib/delivery/ensurePartnerDelivery
 
 const CRON_SCHEDULE = '*/5 * * * *';
 
-// Performance safeguards
-const MAX_TRAVERSAL_DEPTH = 8;
 const MAX_FILES_PER_PROJECT = 1000;
 const INGEST_BATCH_SIZE = 10;
-const PAGE_SIZE = 200;
-const DRIVE_LIST_TIMEOUT_MS = 30_000;
-
-function withTimeout<T>(p: Promise<T>, ms: number, label: string): Promise<T> {
-  return new Promise<T>((resolve, reject) => {
-    const t = setTimeout(
-      () => reject(new Error(`[timeout] ${label} exceeded ${ms}ms`)),
-      ms
-    );
-    p.then(
-      (v) => {
-        clearTimeout(t);
-        resolve(v);
-      },
-      (e) => {
-        clearTimeout(t);
-        reject(e);
-      }
-    );
-  });
-}
 
 const CRAS_TABLE = AIRTABLE_TABLES.CREATIVE_REVIEW_ASSET_STATUS;
 const SOURCE_FOLDER_ID_FIELD = 'Source Folder ID';
-
-interface DiscoveredFile {
-  id: string;
-  name: string;
-  parents: string[];
-  /** Ancestor chain (file's parent first, walking up to the CRH root). */
-  parentChain: string[];
-  /** Inferred from a parent folder name matching a canonical Tactic. */
-  tactic?: string;
-  /** Inferred from a parent folder name matching a canonical Variant. */
-  variant?: string;
-}
-
-/** Canonical single-select option values from the CRAS Airtable table. */
-const TACTIC_OPTIONS = [
-  'Audio',
-  'Display',
-  'Geofence',
-  'OOH',
-  'PMAX',
-  'Social',
-  'Video',
-  'Search',
-] as const;
-const VARIANT_OPTIONS = ['Prospecting', 'Retargeting'] as const;
-
-/** Match a folder name (case-insensitive) to a canonical select option. */
-function matchOption<T extends string>(
-  name: string,
-  options: readonly T[]
-): T | undefined {
-  const norm = name.trim().toLowerCase();
-  if (!norm) return undefined;
-  for (const opt of options) {
-    if (opt.toLowerCase() === norm) return opt;
-  }
-  // Loose: PMAX variants, "Performance Max", "OOH" / "Out of Home", etc.
-  if (norm === 'pmax' || norm === 'p-max' || norm === 'performance max' || norm === 'performancemax') {
-    return options.find((o) => o === ('PMAX' as T));
-  }
-  if (norm === 'out of home' || norm === 'out-of-home') {
-    return options.find((o) => o === ('OOH' as T));
-  }
-  return undefined;
-}
-
-/**
- * Recursively list every file under `rootFolderId`. Folders are traversed up
- * to `MAX_TRAVERSAL_DEPTH`; total files are capped at `MAX_FILES_PER_PROJECT`.
- * Returns leaf files only (folders are excluded).
- */
-async function listFilesRecursive(
-  drive: drive_v3.Drive,
-  rootFolderId: string
-): Promise<DiscoveredFile[]> {
-  const out: DiscoveredFile[] = [];
-  // Folder name lookup populated as we traverse — used to infer Tactic/Variant
-  // from the file's parent chain when building the CRAS payload.
-  const nameByFolderId = new Map<string, string>();
-
-  // BFS queue of { folderId, chain } where chain is the ancestor list
-  // [parentFolderId, grandparent, ..., rootFolderId].
-  const queue: Array<{ folderId: string; chain: string[]; depth: number }> = [
-    { folderId: rootFolderId, chain: [rootFolderId], depth: 0 },
-  ];
-
-  while (queue.length > 0) {
-    const { folderId, chain, depth } = queue.shift()!;
-    if (out.length >= MAX_FILES_PER_PROJECT) break;
-
-    let pageToken: string | undefined;
-    do {
-      let res;
-      try {
-        res = await withTimeout(
-          drive.files.list({
-            q: `'${folderId}' in parents and trashed = false`,
-            fields: 'nextPageToken, files(id, name, mimeType, parents)',
-            pageSize: PAGE_SIZE,
-            pageToken,
-            supportsAllDrives: true,
-            includeItemsFromAllDrives: true,
-          }),
-          DRIVE_LIST_TIMEOUT_MS,
-          `drive.files.list folder=${folderId}`
-        );
-      } catch (err) {
-        const msg = err instanceof Error ? err.message : String(err);
-        console.warn(
-          `[ingest-cron] drive list failed for folder ${folderId}: ${msg}`
-        );
-        break;
-      }
-
-      const files = res.data.files ?? [];
-      for (const f of files) {
-        if (!f.id) continue;
-        const isFolder = f.mimeType === 'application/vnd.google-apps.folder';
-        if (isFolder) {
-          nameByFolderId.set(f.id, f.name ?? '');
-          if (depth + 1 < MAX_TRAVERSAL_DEPTH) {
-            queue.push({
-              folderId: f.id,
-              chain: [f.id, ...chain],
-              depth: depth + 1,
-            });
-          }
-        } else {
-          // Infer tactic/variant from any ancestor folder name in the chain.
-          let tactic: string | undefined;
-          let variant: string | undefined;
-          for (const ancestorId of chain) {
-            const folderName = nameByFolderId.get(ancestorId);
-            if (!folderName) continue;
-            if (!tactic) tactic = matchOption(folderName, TACTIC_OPTIONS);
-            if (!variant) variant = matchOption(folderName, VARIANT_OPTIONS);
-            if (tactic && variant) break;
-          }
-
-          out.push({
-            id: f.id,
-            name: f.name ?? '',
-            parents: f.parents ?? [folderId],
-            parentChain: chain,
-            tactic,
-            variant,
-          });
-          if (out.length >= MAX_FILES_PER_PROJECT) break;
-        }
-      }
-      pageToken = res.data.nextPageToken ?? undefined;
-    } while (pageToken && out.length < MAX_FILES_PER_PROJECT);
-  }
-
-  return out;
-}
 
 /**
  * Fetch the set of Drive file IDs that already have a CRAS record for a given
@@ -277,9 +120,12 @@ export const ingestCreativeFilesScheduled = inngest.createFunction(
             crhFolderId: project.folderId,
           });
 
-          let files: DiscoveredFile[];
+          let files: Awaited<ReturnType<typeof listFilesInReviewVariantFolders>>;
           try {
-            files = await listFilesRecursive(drive, project.folderId);
+            files = await listFilesInReviewVariantFolders(drive, project.folderId);
+            if (files.length > MAX_FILES_PER_PROJECT) {
+              files = files.slice(0, MAX_FILES_PER_PROJECT);
+            }
           } catch (err) {
             const msg = err instanceof Error ? err.message : String(err);
             console.error(
@@ -316,8 +162,8 @@ export const ingestCreativeFilesScheduled = inngest.createFunction(
           const payloads: IngestFileInput[] = newFiles.map((f) => ({
             fileId: f.id,
             fileName: f.name,
-            folderId: f.parents[0] ?? project.folderId,
-            parentFolderIds: f.parentChain,
+            folderId: f.folderId,
+            parentFolderIds: [f.folderId],
             tactic: f.tactic,
             variant: f.variant,
           }));

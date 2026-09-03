@@ -7,7 +7,17 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { google } from 'googleapis';
 import { resolveReviewProject } from '@/lib/review/resolveProject';
-import { listAssetStatuses, getDriveFileIdsForBatch, type StatusRecord } from '@/lib/airtable/reviewAssetStatus';
+import { resolveProjectsBaseId } from '@/lib/airtable/bases';
+import { AIRTABLE_TABLES } from '@/lib/airtable/tables';
+import { restListTableRecords } from '@/lib/review/airtableReviewRest';
+import {
+  listAssetStatuses,
+  getDriveFileIdsForBatch,
+  isStatusRecordVisibleInPortal,
+  type StatusRecord,
+} from '@/lib/airtable/reviewAssetStatus';
+import { resolveReviewVariantFolderMap } from '@/lib/review/reviewFolders';
+import { isDriveFileEligibleForReviewPortal, hiddenPortalAssetNames, normalizePortalAssetName } from '@/lib/review/reviewPortalVisibility';
 import { getGroupApprovals, groupKey } from '@/lib/airtable/reviewGroupApprovals';
 import {
   getDeliveryContextByProjectId,
@@ -20,7 +30,7 @@ import {
 // Folder map imports removed — portal visibility now controlled by "Show in Client Portal" CRAS field
 import type { drive_v3 } from 'googleapis';
 import { resolveInlineContentType } from '@/lib/review/reviewMediaDisplay';
-import { driveErrorsSuggestServiceAccountFallback, flattenGoogleDriveError } from '@/lib/review/googleDriveErrors';
+import { driveErrorsSuggestServiceAccountFallback, flattenGoogleDriveError, isDriveNotFoundError } from '@/lib/review/googleDriveErrors';
 import { getDriveClientWithServiceAccount } from '@/lib/google/driveClient';
 
 export const dynamic = 'force-dynamic';
@@ -160,8 +170,9 @@ async function getDriveFileMetaWithOAuthOrSa(
 async function batchGetDriveFileMeta(
   drive: drive_v3.Drive,
   fileIds: string[],
-): Promise<Map<string, DriveFileMeta>> {
+): Promise<{ metaMap: Map<string, DriveFileMeta>; notFoundIds: Set<string> }> {
   const metaMap = new Map<string, DriveFileMeta>();
+  const notFoundIds = new Set<string>();
   const BATCH_SIZE = 100;
 
   for (let i = 0; i < fileIds.length; i += BATCH_SIZE) {
@@ -187,11 +198,14 @@ async function batchGetDriveFileMeta(
         const failedFileId = batch[j];
         const reason = result.reason instanceof Error ? result.reason.message : String(result.reason);
         console.error(`[review/assets] batchGetDriveFileMeta FAILED for fileId=${failedFileId}:`, reason);
+        if (isDriveNotFoundError(result.reason)) {
+          notFoundIds.add(failedFileId);
+        }
       }
     }
   }
 
-  return metaMap;
+  return { metaMap, notFoundIds };
 }
 
 /**
@@ -289,36 +303,82 @@ export async function GET(req: NextRequest) {
 
     const primaryLandingPageUrl = project.primaryLandingPageUrl ?? null;
 
-    // Filter assets: Show in Client Portal checkbox is the primary gate.
-    // Hidden assets are always excluded. Assets without Show in Client Portal
-    // are excluded unless the field isn't set on ANY record (backwards compat).
+    // Filter assets: Show in Client Portal must be checked. Hidden is always excluded.
     const allCrasRecords = Array.from(statusMap.values());
-    const anyHavePortalFlag = allCrasRecords.some(r => r.showInClientPortal);
 
     const visibleCrasRecords: StatusRecord[] = [];
     let skippedHiddenCount = 0;
     let skippedPortalFlagCount = 0;
+    const skippedFiles: Array<{ fileId: string; filename: string | null; reason: string }> = [];
     for (const rec of allCrasRecords) {
       if (rec.hidden) {
         skippedHiddenCount++;
         continue;
       }
-      // If any records have Show in Client Portal set, use it as the filter
-      if (anyHavePortalFlag && !rec.showInClientPortal) {
+      if (!isStatusRecordVisibleInPortal(rec)) {
         skippedPortalFlagCount++;
         continue;
       }
       visibleCrasRecords.push(rec);
     }
 
+    const hiddenNames = hiddenPortalAssetNames(allCrasRecords);
+    const visibleAfterNameGate: StatusRecord[] = [];
+    for (const rec of visibleCrasRecords) {
+      const n = rec.filename ? normalizePortalAssetName(rec.filename) : '';
+      if (n && hiddenNames.has(n)) {
+        skippedPortalFlagCount++;
+        skippedFiles.push({
+          fileId: rec.driveFileId,
+          filename: rec.filename,
+          reason: 'same filename as a CRAS row with Show in Client Portal unchecked',
+        });
+        continue;
+      }
+      visibleAfterNameGate.push(rec);
+    }
+    visibleCrasRecords.length = 0;
+    visibleCrasRecords.push(...visibleAfterNameGate);
+
     console.log(`[review/assets] Filtering: ${allCrasRecords.length} total, ${visibleCrasRecords.length} visible, ${skippedHiddenCount} hidden, ${skippedPortalFlagCount} not in portal`);
 
-    // Fetch Drive metadata (mimeType, modifiedTime) for visible assets
+    const allowedFolderIds = new Set<string>();
+    try {
+      const reviewBaseId = resolveProjectsBaseId();
+      if (reviewBaseId) {
+        const reviewSets = await restListTableRecords({
+          baseId: reviewBaseId,
+          tableName: AIRTABLE_TABLES.CREATIVE_REVIEW_SETS,
+          filterByFormula: `FIND("${project.recordId}", ARRAYJOIN({Project})) > 0`,
+        });
+        for (const set of reviewSets) {
+          const folderId = set.fields['Folder ID'];
+          if (typeof folderId === 'string' && folderId.trim()) {
+            allowedFolderIds.add(folderId.trim());
+          }
+        }
+      }
+    } catch (err) {
+      console.warn('[review/assets] CRS folder IDs failed (non-fatal):', err instanceof Error ? err.message : err);
+    }
+    if (project.jobFolderId) {
+      try {
+        const { map } = await resolveReviewVariantFolderMap(drive, project.jobFolderId);
+        for (const folderId of map.values()) allowedFolderIds.add(folderId);
+      } catch (err) {
+        console.warn('[review/assets] review variant folder map failed (non-fatal):', err instanceof Error ? err.message : err);
+      }
+    }
+
+    // Fetch Drive metadata (mimeType, modifiedTime, parents, trashed) for visible assets
     let driveMetaMap = new Map<string, DriveFileMeta>();
+    let driveNotFoundIds = new Set<string>();
     const fileIdsForMeta = visibleCrasRecords.map(r => r.driveFileId);
     if (fileIdsForMeta.length > 0) {
       try {
-        driveMetaMap = await batchGetDriveFileMeta(drive, fileIdsForMeta);
+        const driveLookup = await batchGetDriveFileMeta(drive, fileIdsForMeta);
+        driveMetaMap = driveLookup.metaMap;
+        driveNotFoundIds = driveLookup.notFoundIds;
         console.log(`[review/assets] Fetched Drive metadata for ${driveMetaMap.size}/${fileIdsForMeta.length} files`);
       } catch (err) {
         console.warn('[review/assets] batchGetDriveFileMeta failed (non-fatal):', err instanceof Error ? err.message : err);
@@ -337,7 +397,7 @@ export async function GET(req: NextRequest) {
 
     // Populate sections from CRAS records
     let skippedTacticVariantCount = 0;
-    const skippedFiles: Array<{ fileId: string; filename: string | null; reason: string }> = [];
+    let skippedDriveGoneCount = 0;
 
     for (const rec of visibleCrasRecords) {
       const rawTactic = rec.tactic ?? '';
@@ -356,8 +416,24 @@ export async function GET(req: NextRequest) {
         continue;
       }
 
-      const key = `${variant}:${tactic}`;
       const driveMeta = driveMetaMap.get(rec.driveFileId);
+      if (!isDriveFileEligibleForReviewPortal({
+        meta: driveMeta
+          ? { trashed: driveMeta.trashed, parents: driveMeta.parents }
+          : null,
+        notFound: driveNotFoundIds.has(rec.driveFileId),
+        allowedFolderIds: allowedFolderIds.size > 0 ? allowedFolderIds : null,
+      })) {
+        skippedDriveGoneCount++;
+        skippedFiles.push({
+          fileId: rec.driveFileId,
+          filename: rec.filename,
+          reason: 'deleted from Drive or not in a Client Review variant folder',
+        });
+        continue;
+      }
+
+      const key = `${variant}:${tactic}`;
       const asset = statusRecordToReviewAsset(rec, primaryLandingPageUrl, driveMeta);
 
       const sectionAssets = sectionMap.get(key);
@@ -368,6 +444,9 @@ export async function GET(req: NextRequest) {
 
     if (skippedTacticVariantCount > 0) {
       console.log(`[review/assets] Skipped ${skippedTacticVariantCount} assets with missing/unrecognized tactic/variant`);
+    }
+    if (skippedDriveGoneCount > 0) {
+      console.log(`[review/assets] Skipped ${skippedDriveGoneCount} assets not currently in Client Review folders`);
     }
     if (skippedFiles.length > 0) {
       console.log(`[review/assets] Skipped files detail:`, JSON.stringify(skippedFiles));
@@ -548,9 +627,9 @@ export async function GET(req: NextRequest) {
         totalCrasRecords: statusMap.size,
         visibleAssets: visibleCrasRecords.length,
         driveMetaFetched: driveMetaMap.size,
-        anyHavePortalFlag,
         skippedHidden: skippedHiddenCount,
         skippedNotInPortal: skippedPortalFlagCount,
+        skippedDriveGoneCount,
         skippedFiles,
         skippedTacticVariantCount,
       };
