@@ -194,7 +194,7 @@ export const ingestCreativeFilesScheduled = inngest.createFunction(
             }
           }
 
-          return { filesFound: files.length, newFiles: newFiles.length, created, errors };
+          return { filesFound: files.length, newFiles: selected.toProcess.length, created, errors };
         });
 
         totalFilesFound += summary.filesFound;
