@@ -4,9 +4,10 @@
 // Does not scan Evergreen, Promotions, or _Production Assets — those copies
 // were recreating CRAS rows after files were deleted from the review folders.
 //
-// Runs every 5 minutes. Idempotent — files that already have CRAS records are
-// skipped both via an upfront dedupe query and via ensureCrasRecord's own
-// (Review Token + Source Folder ID) uniqueness check.
+// Runs every 5 minutes. Idempotent — files whose CRAS already has Mux (or that
+// are not videos) are skipped. Files that only have a portal-created CRAS row
+// still go through ingestFileToCras so Mux can start. ensureCrasRecord also
+// dedupes on (Review Token + Source Folder ID).
 //
 // This function is a TRIGGER ONLY. All real ingestion logic lives in
 // lib/review/ingestFileToCras.ts.
@@ -22,6 +23,13 @@ import {
   type IngestFileInput,
 } from '@/lib/review/ingestFileToCras';
 import { ensurePartnerDeliverySetup } from '@/lib/delivery/ensurePartnerDeliverySetup';
+import {
+  driveFileIdFromCrasSourceField,
+  existingCrasEntryFromFields,
+  selectIngestCronFiles,
+  type ExistingCrasIndexEntry,
+} from '@/lib/review/ingestCronSelection';
+import { CRAS_MUX_IDENTIFIER_FIELD_NAMES } from '@/lib/mux/crasMuxFields';
 
 const CRON_SCHEDULE = '*/5 * * * *';
 
@@ -32,34 +40,35 @@ const CRAS_TABLE = AIRTABLE_TABLES.CREATIVE_REVIEW_ASSET_STATUS;
 const SOURCE_FOLDER_ID_FIELD = 'Source Folder ID';
 
 /**
- * Fetch the set of Drive file IDs that already have a CRAS record for a given
- * Project. Used to skip files we've already ingested.
+ * CRAS index for a project: Drive file id → mux/filename so the cron can skip
+ * fully ingested rows but still Mux-backfill portal-created video CRAS.
  */
-async function getExistingCrasFileIdsForProject(
+async function getExistingCrasIndexForProject(
   projectId: string
-): Promise<Set<string>> {
-  const set = new Set<string>();
+): Promise<Map<string, ExistingCrasIndexEntry>> {
+  const map = new Map<string, ExistingCrasIndexEntry>();
   try {
     const projectsBase = getProjectsBase();
-    // Match the Project link via FIND() over the linked record IDs.
     const formula = `FIND("${projectId}", ARRAYJOIN({Project})) > 0`;
     const records = await projectsBase(CRAS_TABLE)
       .select({
         filterByFormula: formula,
-        fields: [SOURCE_FOLDER_ID_FIELD],
+        fields: [SOURCE_FOLDER_ID_FIELD, 'Filename', ...CRAS_MUX_IDENTIFIER_FIELD_NAMES],
       })
       .all();
     for (const r of records) {
-      const fid = (r.fields as Record<string, unknown>)[SOURCE_FOLDER_ID_FIELD];
-      if (typeof fid === 'string' && fid) set.add(fid);
+      const fields = r.fields as Record<string, unknown>;
+      const fid = driveFileIdFromCrasSourceField(fields[SOURCE_FOLDER_ID_FIELD]);
+      if (!fid) continue;
+      map.set(fid, existingCrasEntryFromFields(fields));
     }
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     console.warn(
-      `[ingest-cron] failed to load existing CRAS file IDs for project ${projectId}: ${msg}`
+      `[ingest-cron] failed to load existing CRAS index for project ${projectId}: ${msg}`
     );
   }
-  return set;
+  return map;
 }
 
 function chunk<T>(arr: T[], size: number): T[][] {
@@ -142,24 +151,21 @@ export const ingestCreativeFilesScheduled = inngest.createFunction(
             return { filesFound: 0, newFiles: 0, created: 0, errors: 0 };
           }
 
-          const existing = await getExistingCrasFileIdsForProject(project.projectId);
-          const newFiles = files.filter((f) => {
-            if (existing.has(f.id)) {
-              console.log('[ingest-cron] skipped existing file:', { fileId: f.id });
-              return false;
-            }
-            return true;
-          });
-
-          console.log(`[ingest-cron] new files: ${newFiles.length}`, {
+          const existing = await getExistingCrasIndexForProject(project.projectId);
+          const selected = selectIngestCronFiles(files, existing);
+          console.log(`[ingest-cron] selected files`, {
             projectId: project.projectId,
+            filesFound: files.length,
+            newFiles: selected.newCount,
+            muxBackfill: selected.muxBackfillCount,
+            skipped: selected.skipped,
           });
 
-          if (newFiles.length === 0) {
+          if (selected.toProcess.length === 0) {
             return { filesFound: files.length, newFiles: 0, created: 0, errors: 0 };
           }
 
-          const payloads: IngestFileInput[] = newFiles.map((f) => ({
+          const payloads: IngestFileInput[] = selected.toProcess.map((f) => ({
             fileId: f.id,
             fileName: f.name,
             folderId: f.folderId,
