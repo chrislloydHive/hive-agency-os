@@ -32,6 +32,7 @@ import type { drive_v3 } from 'googleapis';
 import { resolveInlineContentType } from '@/lib/review/reviewMediaDisplay';
 import { driveErrorsSuggestServiceAccountFallback, flattenGoogleDriveError, isDriveNotFoundError } from '@/lib/review/googleDriveErrors';
 import { getDriveClientWithServiceAccount } from '@/lib/google/driveClient';
+import { requestReviewMuxBackfill } from '@/lib/review/requestMuxBackfill';
 
 export const dynamic = 'force-dynamic';
 
@@ -645,6 +646,8 @@ export async function GET(req: NextRequest) {
       payload.emptyAssetsHint = hint;
       console.warn('[review/assets] 0 files (Airtable-first)', { projectName: project.name, crasRecordsCount: statusMap.size });
     }
+
+    void requestReviewMuxBackfill(token);
 
     return NextResponse.json(payload, {
       headers: {

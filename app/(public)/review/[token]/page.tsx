@@ -12,6 +12,7 @@ import { restGetProjectRecordFields, restListTableRecords } from '@/lib/review/a
 import { AIRTABLE_TABLES } from '@/lib/airtable/tables';
 import { batchEnsureCrasRecords, listAssetStatuses } from '@/lib/airtable/reviewAssetStatus';
 import { enrichReviewSectionsFromCras } from '@/lib/review/enrichReviewSectionsFromCras';
+import { requestReviewMuxBackfill } from '@/lib/review/requestMuxBackfill';
 import {
   getReviewFolderMapFromJobFolderPartial,
   getReviewFolderMapFromClientProjectsFolder,
@@ -271,6 +272,10 @@ export default async function ReviewPage({
       console.error('[review/page] Failed to ensure CRAS records:', err);
     }
   }
+
+  // Same OAuth Drive identity as /api/review/files (downloads already work).
+  // Portal-created CRAS rows skip the ingest cron, so Mux must start here.
+  void requestReviewMuxBackfill(token);
 
   // Enrich after ensure so newly created rows are included, and unchecked
   // "Show in Client Portal" rows (including YouTube Links docs) are dropped.

@@ -14,7 +14,7 @@ import {
   reviewAssetIsImage,
   reviewAssetIsVideo,
 } from '@/lib/review/reviewMediaDisplay';
-import { muxPlaybackReadyForThumbnail } from '@/lib/review/muxThumbnail';
+import { muxPlaybackReadyForThumbnail, reviewTacticPrefersAnimatedMuxPreview } from '@/lib/review/muxThumbnail';
 import GridMuxPoster from './GridMuxPoster';
 import DriveFileThumbnail from './DriveFileThumbnail';
 import { ReviewAudioPlayer } from './ReviewAudioPlayer';
@@ -1240,21 +1240,26 @@ function PlacementGroupCard({
                             alt={asset.name}
                             layout="carousel"
                             muxAspectRatio={asset.muxAspectRatio}
+                            animated={reviewTacticPrefersAnimatedMuxPreview(tactic)}
                             className="h-full w-full object-cover transition-transform group-hover:scale-105"
                             fallback={
-                              <VideoWithThumbnail
-                                key={asset.fileId}
-                                src={src}
-                                downloadHref={reviewFileDownloadHref(src)}
+                              <DriveFileThumbnail
+                                fileId={asset.fileId}
+                                token={token}
+                                crasRecordId={asset.airtableRecordId}
+                                alt={asset.name}
+                                compact
                                 className="h-full w-full object-cover"
                               />
                             }
                           />
                         ) : (
-                          <VideoWithThumbnail
-                            key={asset.fileId}
-                            src={src}
-                            downloadHref={reviewFileDownloadHref(src)}
+                          <DriveFileThumbnail
+                            fileId={asset.fileId}
+                            token={token}
+                            crasRecordId={asset.airtableRecordId}
+                            alt={asset.name}
+                            compact
                             className="h-full w-full object-cover"
                           />
                         )}
@@ -1352,6 +1357,7 @@ function PlacementGroupCard({
                 key={asset.fileId}
                 asset={asset}
                 token={token}
+                tactic={tactic}
                 onClick={() => openLightbox(assetIndex)}
                 selected={selectedFileIds.has(asset.fileId)}
                 onToggleSelect={
@@ -1376,6 +1382,7 @@ function PlacementGroupCard({
                 key={asset.fileId}
                 asset={asset}
                 token={token}
+                tactic={tactic}
                 onClick={() => openLightbox(assetIndex)}
                 selected={selectedFileIds.has(asset.fileId)}
                 onToggleSelect={
@@ -1474,6 +1481,7 @@ function statusBadgeClass(state: ReviewState | undefined): string {
 function AssetCard({
   asset,
   token,
+  tactic,
   onClick,
   selected = false,
   onToggleSelect,
@@ -1502,6 +1510,7 @@ function AssetCard({
     muxAspectRatio?: string | null;
   };
   token: string;
+  tactic?: string;
   onClick: () => void;
   selected?: boolean;
   onToggleSelect?: (() => void) | undefined;
@@ -1583,21 +1592,24 @@ function AssetCard({
                 playbackId={muxPid}
                 alt={asset.name}
                 muxAspectRatio={asset.muxAspectRatio}
+                animated={reviewTacticPrefersAnimatedMuxPreview(tactic)}
                 fallback={
-                  <VideoWithThumbnail
-                    key={asset.fileId}
-                    src={src}
-                    downloadHref={reviewFileDownloadHref(src)}
+                  <DriveFileThumbnail
+                    fileId={asset.fileId}
+                    token={token}
+                    crasRecordId={asset.airtableRecordId}
+                    alt={asset.name}
                     className="h-full w-full object-cover"
                   />
                 }
               />
             ) : (
               <div className="absolute inset-0">
-                <VideoWithThumbnail
-                  key={asset.fileId}
-                  src={src}
-                  downloadHref={reviewFileDownloadHref(src)}
+                <DriveFileThumbnail
+                  fileId={asset.fileId}
+                  token={token}
+                  crasRecordId={asset.airtableRecordId}
+                  alt={asset.name}
                   className="h-full w-full object-cover"
                 />
               </div>

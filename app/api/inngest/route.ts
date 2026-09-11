@@ -31,6 +31,7 @@ import { partnerDeliveryRequested } from '@/lib/inngest/functions/partner-delive
 import { partnerDeliveryProbe } from '@/lib/inngest/functions/partner-delivery-probe';
 import { ingestCreativeFilesScheduled } from '@/lib/inngest/functions/ingestCreativeFiles';
 import { productionFolderMirrorScheduled } from '@/lib/inngest/functions/production-folder-mirror-scheduled';
+import { reviewMuxBackfillOnDemand } from '@/lib/inngest/functions/review-mux-backfill';
 
 // Get the serve handlers
 const registeredFunctions = [
@@ -63,6 +64,7 @@ const registeredFunctions = [
   partnerDeliveryProbe,
   // Creative ingestion: poll CRH folders → create CRAS records
   ingestCreativeFilesScheduled,
+  reviewMuxBackfillOnDemand,
   // Internal production → partner production folder mirror (daily)
   productionFolderMirrorScheduled,
 ];
