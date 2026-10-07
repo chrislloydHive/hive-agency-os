@@ -5,7 +5,8 @@
 // Supports images, video, and audio. ESC to close, arrow keys to navigate.
 // Includes per-asset commenting with required author identity.
 
-import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from 'react';
+import { createPortal } from 'react-dom';
 import { useAuthorIdentity, type AuthorIdentity } from './AuthorIdentityContext';
 import {
   buildReviewFileProxyUrl,
@@ -23,7 +24,6 @@ import {
 import { REVIEW_APPROVE_BUTTON_CLASS, REVIEW_APPROVED_INDICATOR_CLASS } from './reviewAssetUtils';
 import MuxPlayer from '@mux/mux-player-react';
 import {
-  muxAnimatedPreviewUrls,
   muxThumbnailUrl,
   parseMuxAspectDimensions,
   reviewTacticPrefersAnimatedMuxPreview,
@@ -31,130 +31,143 @@ import {
 
 type VideoBoxPhase = 'native' | 'transcoding' | 'h264' | 'unavailable';
 
-function muxPlayerViewportBoxStyle(muxAspectRatio: string | null | undefined): CSSProperties {
-  const { cssRatio, widthNum, heightNum } = parseMuxAspectDimensions(muxAspectRatio);
-  return {
-    maxHeight: '85vh',
-    maxWidth: '100%',
-    width: `min(100%, calc(85vh * ${widthNum} / ${heightNum}))`,
-    aspectRatio: cssRatio,
-    margin: '0 auto',
-  };
+/** Fill the stage and letterbox — never use intrinsic height (that clips tall banners). */
+const FIT_CONTAIN: CSSProperties = {
+  display: 'block',
+  width: '100%',
+  height: '100%',
+  maxWidth: '100%',
+  maxHeight: '100%',
+  minWidth: 0,
+  minHeight: 0,
+  objectFit: 'contain',
+  objectPosition: 'center',
+};
+
+const MUX_FIT_CONTAIN: CSSProperties = {
+  ...FIT_CONTAIN,
+  aspectRatio: 'auto',
+  ['--media-object-fit' as string]: 'contain',
+  ['--media-object-position' as string]: 'center',
+};
+
+function MediaStage({ children }: { children: ReactNode }) {
+  return (
+    <div
+      style={{
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        width: '100%',
+        height: '100%',
+        minHeight: 0,
+        minWidth: 0,
+        overflow: 'hidden',
+        padding: 12,
+        containerType: 'size',
+      }}
+    >
+      {children}
+    </div>
+  );
 }
 
-/** Display ads should read at near-ad-unit scale, not fill the viewport like a feature film. */
-function displayBannerLightboxBoxStyle(muxAspectRatio: string | null | undefined): CSSProperties {
-  const { cssRatio, widthNum, heightNum } = parseMuxAspectDimensions(muxAspectRatio);
-  const ratio = widthNum / heightNum;
-  // Cap the long edge so a 300x250 / 728x90 / 160x600 stays reviewable, not enormous.
-  const maxLongEdgePx = 560;
-  if (ratio >= 1) {
-    return {
-      maxWidth: `min(100%, ${maxLongEdgePx}px)`,
-      width: `min(100%, ${maxLongEdgePx}px)`,
-      aspectRatio: cssRatio,
-      margin: '0 auto',
-    };
-  }
-  return {
-    maxHeight: `min(70vh, ${maxLongEdgePx}px)`,
-    width: `min(100%, calc(${maxLongEdgePx}px * ${widthNum} / ${heightNum}))`,
-    aspectRatio: cssRatio,
-    margin: '0 auto',
-  };
+/** Box that keeps the creative aspect and fits entirely inside the stage. */
+function FittedFrame({
+  aspect,
+  children,
+}: {
+  aspect?: string | null;
+  children: ReactNode;
+}) {
+  const parsed = aspect?.trim() ? parseMuxAspectDimensions(aspect) : null;
+  const frameStyle: CSSProperties = parsed
+    ? {
+        aspectRatio: parsed.cssRatio,
+        width: `min(100cqw, calc(100cqh * ${parsed.widthNum} / ${parsed.heightNum}))`,
+        height: 'auto',
+        maxHeight: '100cqh',
+        position: 'relative',
+      }
+    : {
+        width: '100%',
+        height: '100%',
+        minHeight: 0,
+        minWidth: 0,
+        position: 'relative',
+      };
+  return (
+    <div style={frameStyle}>
+      <div style={{ position: 'absolute', inset: 0, overflow: 'hidden' }}>{children}</div>
+    </div>
+  );
 }
 
 /**
- * Display banner lightbox: show a static Mux frame immediately, then swap to
- * animated.webp (gif fallback). Avoids blank wait while Mux generates the loop.
+ * Full Mux HLS in the lightbox. Progressive MP4s 404 on these assets.
+ * Display: muted looping banner — cached still until playback starts.
+ * Social/Video: real player with controls so the clip is watchable.
  */
-function LightboxMuxAnimatedPreview({
+function LightboxMuxVideo({
   playbackId,
   alt,
   muxAspectRatio,
+  variant,
 }: {
   playbackId: string;
   alt: string;
   muxAspectRatio?: string | null;
+  variant: 'display' | 'video';
 }) {
-  const posterUrl = muxThumbnailUrl(playbackId, { width: 640, height: 360, fitMode: 'smartcrop', time: 1.5 });
-  const animatedUrls = useMemo(
-    () => muxAnimatedPreviewUrls(playbackId, { width: 640, fps: 8, endSeconds: 4 }),
-    [playbackId],
-  );
-  const [animIndex, setAnimIndex] = useState(0);
-  const [animReady, setAnimReady] = useState(false);
-  const [animExhausted, setAnimExhausted] = useState(false);
-  const boxStyle = displayBannerLightboxBoxStyle(muxAspectRatio);
+  const isDisplay = variant === 'display';
+  const poster = useMemo(() => muxThumbnailUrl(playbackId), [playbackId]);
+  const [playing, setPlaying] = useState(false);
 
   useEffect(() => {
-    setAnimIndex(0);
-    setAnimReady(false);
-    setAnimExhausted(false);
+    setPlaying(false);
   }, [playbackId]);
 
-  // Preload animated URL so we can swap atomically when ready.
-  useEffect(() => {
-    if (animExhausted) return;
-    const url = animatedUrls[animIndex];
-    if (!url) {
-      setAnimExhausted(true);
-      return;
-    }
-    let cancelled = false;
-    const img = new window.Image();
-    img.onload = () => {
-      if (!cancelled) setAnimReady(true);
-    };
-    img.onerror = () => {
-      if (cancelled) return;
-      if (animIndex < animatedUrls.length - 1) {
-        setAnimIndex((i) => i + 1);
-        setAnimReady(false);
-      } else {
-        setAnimExhausted(true);
-      }
-    };
-    img.src = url;
-    return () => {
-      cancelled = true;
-      img.onload = null;
-      img.onerror = null;
-    };
-  }, [playbackId, animIndex, animExhausted, animatedUrls]);
-
-  if (animExhausted && !animReady) {
-    return (
-      <div style={boxStyle} className="min-h-0 min-w-0 shrink-0">
+  return (
+    <MediaStage>
+      <FittedFrame aspect={muxAspectRatio}>
+        {isDisplay && !playing ? (
+          // eslint-disable-next-line @next/next/no-img-element
+          <img src={poster} alt="" style={FIT_CONTAIN} />
+        ) : null}
         <MuxPlayer
           playbackId={playbackId}
           streamType="on-demand"
           autoPlay="muted"
           muted
-          loop
+          loop={isDisplay}
           playsInline
-          style={{ width: '100%', height: '100%', objectFit: 'contain' }}
+          nohotkeys={isDisplay}
+          preload="auto"
+          capRenditionToPlayerSize
+          placeholder={poster}
+          thumbnailTime={1.5}
+          title={alt}
+          onPlaying={() => setPlaying(true)}
+          style={{
+            ...MUX_FIT_CONTAIN,
+            ...(isDisplay ? { ['--controls' as string]: 'none' } : {}),
+            ...(isDisplay && !playing
+              ? { position: 'absolute', inset: 0, opacity: 0, pointerEvents: 'none' }
+              : {}),
+          }}
         />
-      </div>
-    );
-  }
-
-  const src = animReady ? animatedUrls[animIndex] : posterUrl;
-  return (
-    <div style={boxStyle} className="min-h-0 min-w-0 shrink-0 overflow-hidden rounded-md bg-gray-900">
-      {/* eslint-disable-next-line @next/next/no-img-element */}
-      <img
-        key={src}
-        src={src}
-        alt={alt}
-        decoding="async"
-        className="h-full w-full object-contain"
-      />
-    </div>
+      </FittedFrame>
+    </MediaStage>
   );
 }
 
-function LightboxVideoPreview({ src, fileName }: { src: string; fileName: string }) {
+function LightboxVideoPreview({
+  src,
+  fileName,
+}: {
+  src: string;
+  fileName: string;
+}) {
   const [phase, setPhase] = useState<VideoBoxPhase>('native');
   const [tcProgress, setTcProgress] = useState(0);
   const [tcLabel, setTcLabel] = useState('Preparing…');
@@ -217,25 +230,26 @@ function LightboxVideoPreview({ src, fileName }: { src: string; fileName: string
 
   if (phase === 'h264' && h264Url) {
     return (
-      <div className="flex max-w-3xl flex-col items-center gap-2">
-        <p className="text-xs text-emerald-400/90">
+      <MediaStage>
+        <p className="pointer-events-none absolute left-0 right-0 top-0 z-10 text-center text-xs text-emerald-400/90">
           Playing a converted H.264 preview in the browser (original file is unchanged).
         </p>
         <video
           src={h264Url}
-          className="max-h-[75vh] max-w-full"
+          style={FIT_CONTAIN}
           controls
           playsInline
           preload="metadata"
           onError={() => setPhase('unavailable')}
         />
-      </div>
+      </MediaStage>
     );
   }
 
   if (phase === 'transcoding') {
     return (
-      <div className="flex max-w-md flex-col items-center gap-4 rounded-lg bg-gray-800/90 p-6 text-center">
+      <MediaStage>
+      <div className="flex h-full w-full max-w-md flex-col items-center justify-center gap-4 rounded-lg bg-gray-800/90 p-6 text-center">
         <p className="text-sm text-gray-200">{tcLabel}</p>
         {tcProgress > 0 && (
           <div className="h-1.5 w-full max-w-xs overflow-hidden rounded bg-gray-700">
@@ -247,12 +261,14 @@ function LightboxVideoPreview({ src, fileName }: { src: string; fileName: string
         )}
         <p className="text-xs text-gray-500">This runs once in your tab; long clips may take a minute.</p>
       </div>
+      </MediaStage>
     );
   }
 
   if (phase === 'unavailable') {
     return (
-      <div className="flex max-w-md flex-col items-center gap-4 rounded-lg bg-gray-800/90 p-6 text-center">
+      <MediaStage>
+      <div className="flex h-full w-full max-w-md flex-col items-center justify-center gap-4 rounded-lg bg-gray-800/90 p-6 text-center">
         <p className="text-sm text-gray-300">
           The in-browser preview can’t decode this file, and automatic conversion failed or is disabled.
           <span className="text-gray-400">
@@ -269,13 +285,15 @@ function LightboxVideoPreview({ src, fileName }: { src: string; fileName: string
           Download {fileName}
         </a>
       </div>
+      </MediaStage>
     );
   }
 
   return (
+    <MediaStage>
     <video
       src={src}
-      className="max-h-[75vh] max-w-full"
+      style={FIT_CONTAIN}
       controls
       playsInline
       preload="metadata"
@@ -288,6 +306,7 @@ function LightboxVideoPreview({ src, fileName }: { src: string; fileName: string
         }
       }}
     />
+    </MediaStage>
   );
 }
 
@@ -619,31 +638,17 @@ export default function AssetLightbox({
     });
   }, [asset, identity, token, variant, tactic, requireIdentity, onAssetStatusChange, onApprovedResult]);
 
-  if (!asset) return null;
-
-  // All files (including animated GIFs / animated WebP) go through our file
-  // proxy. The streaming proxy serves the correct Content-Type and browsers
-  // animate GIFs natively. drive.google.com/uc?export=view (the previous
-  // approach) requires public sharing and is rate-limited / deprecated.
-  const src = buildReviewFileProxyUrl(asset.fileId, token, { crasRecordId: asset.airtableRecordId });
-  const isImage = reviewAssetIsImage(asset.mimeType, asset.name);
-  const isVideo = reviewAssetIsVideo(asset.mimeType, asset.name);
-  const isAudio = reviewAssetIsAudio(asset.mimeType, asset.name);
-
   const hasPrev = currentIndex > 0;
   const hasNext = currentIndex < assets.length - 1;
 
-  // Navigate to previous asset (decrease index, no wrapping)
   const goToPrev = useCallback(() => {
-    if (hasPrev) onNavigate(currentIndex - 1);
-  }, [hasPrev, currentIndex, onNavigate]);
+    if (currentIndex > 0) onNavigate(currentIndex - 1);
+  }, [currentIndex, onNavigate]);
 
-  // Navigate to next asset (increase index, no wrapping)
   const goToNext = useCallback(() => {
-    if (hasNext) onNavigate(currentIndex + 1);
-  }, [hasNext, currentIndex, onNavigate]);
+    if (currentIndex < assets.length - 1) onNavigate(currentIndex + 1);
+  }, [currentIndex, assets.length, onNavigate]);
 
-  // Handle keyboard navigation (only when not typing)
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       // Don't navigate when typing in textarea/input
@@ -667,13 +672,16 @@ export default function AssetLightbox({
     return () => document.removeEventListener('keydown', handleKeyDown);
   }, [onClose, goToPrev, goToNext]);
 
-  // Prevent body scroll when lightbox is open
-  useEffect(() => {
-    document.body.style.overflow = 'hidden';
-    return () => {
-      document.body.style.overflow = '';
-    };
-  }, []);
+  if (!asset) return null;
+
+  // All files (including animated GIFs / animated WebP) go through our file
+  // proxy. The streaming proxy serves the correct Content-Type and browsers
+  // animate GIFs natively. drive.google.com/uc?export=view (the previous
+  // approach) requires public sharing and is rate-limited / deprecated.
+  const src = buildReviewFileProxyUrl(asset.fileId, token, { crasRecordId: asset.airtableRecordId });
+  const isImage = reviewAssetIsImage(asset.mimeType, asset.name);
+  const isVideo = reviewAssetIsVideo(asset.mimeType, asset.name);
+  const isAudio = reviewAssetIsAudio(asset.mimeType, asset.name);
 
   // Close when clicking overlay (not content)
   const handleOverlayClick = (e: React.MouseEvent) => {
@@ -695,31 +703,25 @@ export default function AssetLightbox({
     }
   };
 
-  return (
+  const overlay = (
     <div
       ref={overlayRef}
       onClick={handleOverlayClick}
-      className="fixed inset-0 z-50 flex bg-black/90 backdrop-blur-sm"
-      role="dialog"
-      aria-modal="true"
+      style={{
+        position: 'fixed',
+        inset: 0,
+        zIndex: 9999,
+        display: 'flex',
+        flexDirection: 'column',
+        background: 'rgba(0,0,0,0.92)',
+      }}
       aria-label="Asset preview"
     >
-      {/* Close button */}
-      <button
-        onClick={onClose}
-        className="absolute right-4 top-4 z-10 rounded-full bg-gray-800/80 p-2 text-gray-300 transition-colors hover:bg-gray-700 hover:text-white"
-        aria-label="Close preview"
-      >
-        <svg className="h-6 w-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-        </svg>
-      </button>
-
       {/* Navigation: Previous (left arrow, decreases index) */}
       {hasPrev && (
         <button
           onClick={goToPrev}
-          className="absolute left-4 top-1/2 z-10 -translate-y-1/2 rounded-full bg-gray-800/80 p-3 text-gray-300 transition-colors hover:bg-gray-700 hover:text-white"
+          className="fixed left-4 top-1/2 z-10 -translate-y-1/2 rounded-full bg-gray-800/80 p-3 text-gray-300 transition-colors hover:bg-gray-700 hover:text-white"
           aria-label="Previous asset"
         >
           <svg className="h-6 w-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -743,86 +745,103 @@ export default function AssetLightbox({
         </button>
       )}
 
-      {/* Main content area */}
-      <div className={`flex flex-1 flex-col items-center justify-center p-4 transition-all ${showComments ? 'pr-80 sm:pr-96' : ''}`}>
-        {/* Asset preview */}
-        <div className="flex max-h-[85vh] w-full min-w-0 items-center justify-center">
+      <div
+        className="flex shrink-0 items-center justify-end px-3 py-3"
+        style={{ background: 'rgba(0,0,0,0.92)' }}
+      >
+          <button
+            type="button"
+            onClick={(e) => {
+              e.stopPropagation();
+              onClose();
+            }}
+            aria-label="Close preview"
+            className="inline-flex items-center gap-1.5 rounded-full bg-amber-500 px-3 py-1.5 text-sm font-semibold text-gray-900 shadow-lg hover:bg-amber-400"
+          >
+            <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden>
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+            </svg>
+            Close
+          </button>
+        </div>
+
+        <div
+          className={`relative min-h-0 min-w-0 w-full ${showComments ? 'pr-80 sm:pr-96' : ''}`}
+          style={{
+            flex: 1,
+            display: 'flex',
+            alignItems: 'stretch',
+            justifyContent: 'center',
+            overflow: 'hidden',
+          }}
+        >
           {isImage && (
-            // eslint-disable-next-line @next/next/no-img-element
-            <img
-              src={src}
-              alt={asset.name}
-              className="max-h-[75vh] max-w-full object-contain"
-            />
+            <MediaStage>
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img src={src} alt={asset.name} style={FIT_CONTAIN} />
+            </MediaStage>
           )}
           {isVideo &&
             (() => {
               const ms = (asset.muxStatus ?? '').toLowerCase();
               const pid = asset.muxPlaybackId?.trim();
               if (pid && ms === 'ready') {
-                if (reviewTacticPrefersAnimatedMuxPreview(tactic)) {
-                  return (
-                    <LightboxMuxAnimatedPreview
-                      playbackId={pid}
-                      alt={asset.name}
-                      muxAspectRatio={asset.muxAspectRatio}
-                    />
-                  );
-                }
                 return (
-                  <div style={muxPlayerViewportBoxStyle(asset.muxAspectRatio)} className="min-h-0 min-w-0 shrink-0">
-                    <MuxPlayer
-                      playbackId={pid}
-                      streamType="on-demand"
-                      style={{ width: '100%', height: '100%', objectFit: 'contain' }}
-                    />
-                  </div>
+                  <LightboxMuxVideo
+                    playbackId={pid}
+                    alt={asset.name}
+                    muxAspectRatio={asset.muxAspectRatio}
+                    variant={reviewTacticPrefersAnimatedMuxPreview(tactic) ? 'display' : 'video'}
+                  />
                 );
               }
               if (ms === 'preparing') {
                 return (
-                  <div className="flex max-w-md flex-col items-center gap-3 rounded-lg bg-gray-800/90 p-6 text-center">
-                    <p className="text-sm text-gray-200">Transcoding on Mux…</p>
-                    <p className="text-xs text-gray-500">
-                      Usually completes within a minute or two. Refresh the page to check again.
-                    </p>
-                  </div>
+                  <MediaStage>
+                    <div className="flex h-full w-full flex-col items-center justify-center gap-3 rounded-lg bg-gray-800/90 p-6 text-center">
+                      <p className="text-sm text-gray-200">Transcoding on Mux…</p>
+                      <p className="text-xs text-gray-500">
+                        Usually completes within a minute or two. Refresh the page to check again.
+                      </p>
+                    </div>
+                  </MediaStage>
                 );
-              }
-              if (ms === 'errored') {
-                return <LightboxVideoPreview src={src} fileName={asset.name} />;
               }
               return <LightboxVideoPreview src={src} fileName={asset.name} />;
             })()}
           {isAudio && (
-            <div className="flex flex-col items-center gap-6 rounded-lg bg-gray-800 p-8">
-              <div className="flex h-24 w-24 items-center justify-center rounded-full bg-gray-700">
-                <svg className="h-12 w-12 text-amber-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19V6l12-3v13M9 19c0 1.105-1.343 2-3 2s-3-.895-3-2 1.343-2 3-2 3 .895 3 2zm12-3c0 1.105-1.343 2-3 2s-3-.895-3-2 1.343-2 3-2 3 .895 3 2zM9 10l12-3" />
-                </svg>
+            <MediaStage>
+              <div className="flex h-full w-full flex-col items-center justify-center gap-6 rounded-lg bg-gray-800 p-8">
+                <div className="flex h-24 w-24 items-center justify-center rounded-full bg-gray-700">
+                  <svg className="h-12 w-12 text-amber-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19V6l12-3v13M9 19c0 1.105-1.343 2-3 2s-3-.895-3-2 1.343-2 3-2 3 .895 3 2zm12-3c0 1.105-1.343 2-3 2s-3-.895-3-2 1.343-2 3-2 3 .895 3 2zM9 10l12-3" />
+                  </svg>
+                </div>
+                <ReviewAudioPlayer src={src} fileName={asset.name} className="w-80" />
               </div>
-              <ReviewAudioPlayer src={src} fileName={asset.name} className="w-80" />
-            </div>
+            </MediaStage>
           )}
           {!isImage && !isVideo && !isAudio && (
-            <div className="flex flex-col items-center gap-4 rounded-lg bg-gray-800 p-8">
-              <svg className="h-16 w-16 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-              </svg>
-              <p className="text-gray-400">Preview not available</p>
-              <a
-                href={`${src}&dl=1`}
-                download
-                className="rounded-md bg-amber-500 px-4 py-2 text-sm font-medium text-gray-900 transition-colors hover:bg-amber-400"
-              >
-                Download File
-              </a>
-            </div>
+            <MediaStage>
+              <div className="flex h-full w-full flex-col items-center justify-center gap-4 rounded-lg bg-gray-800 p-8">
+                <svg className="h-16 w-16 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                </svg>
+                <p className="text-gray-400">Preview not available</p>
+                <a
+                  href={`${src}&dl=1`}
+                  download
+                  className="rounded-md bg-amber-500 px-4 py-2 text-sm font-medium text-gray-900 transition-colors hover:bg-amber-400"
+                >
+                  Download File
+                </a>
+              </div>
+            </MediaStage>
           )}
         </div>
 
         {/* Footer: filename, details, counter, Approve, and comment toggle */}
-        <div className="mt-4 flex flex-col items-center gap-2">
+        <div className="flex shrink-0 flex-col items-center gap-2 px-4 py-4">
           <p className="max-w-md truncate text-center text-sm text-gray-300" title={asset.name}>
             {asset.name}
           </p>
@@ -915,11 +934,13 @@ export default function AssetLightbox({
             </button>
           </div>
         </div>
-      </div>
 
       {/* Comments Panel */}
       {showComments && (
-        <div className="absolute right-0 top-0 flex h-full w-80 flex-col border-l border-gray-700 bg-gray-900 sm:w-96">
+        <div
+          data-lightbox-comments
+          className="absolute right-0 top-0 z-20 flex h-full w-80 flex-col border-l border-gray-700 bg-gray-900 sm:w-96"
+        >
           {/* Panel header */}
           <div className="flex items-center justify-between border-b border-gray-700 px-4 py-3">
             <h3 className="text-sm font-semibold text-gray-200">Comments</h3>
@@ -986,4 +1007,7 @@ export default function AssetLightbox({
       )}
     </div>
   );
+
+  if (typeof document === 'undefined') return overlay;
+  return createPortal(overlay, document.body);
 }

@@ -156,6 +156,18 @@ export function muxPortalPosterDisplayUrls(
  */
 export const MUX_ANIMATED_PREVIEW_MAX_WIDTH = 640;
 
+export type MuxProgressiveMp4Quality = 'low' | 'medium' | 'high';
+
+/** Public Mux progressive MP4 — use with `<video loop muted autoPlay>` for Display banners. */
+export function muxProgressiveMp4Url(
+  playbackId: string,
+  quality: MuxProgressiveMp4Quality = 'low',
+): string {
+  const id = playbackId.trim();
+  if (!id) return '';
+  return `https://stream.mux.com/${id}/${quality}.mp4`;
+}
+
 export function muxAnimatedPreviewUrls(
   playbackId: string,
   opts?: { width?: number; fps?: number; endSeconds?: number },

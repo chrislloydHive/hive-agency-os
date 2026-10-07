@@ -47,7 +47,10 @@ export default function LazyMountSection({
   return (
     <div
       ref={ref}
-      className="[content-visibility:auto] [contain-intrinsic-size:auto_280px]"
+      // content-visibility on a mounted section can freeze GIF/animated WebP
+      // loops (Chrome) and treat the block as ~280px tall on first paint, so
+      // Display banners never start animating until the user scrolls.
+      className={mounted ? undefined : '[content-visibility:auto] [contain-intrinsic-size:auto_280px]'}
       style={mounted ? undefined : { minHeight: placeholderMinHeightPx }}
     >
       {mounted ? (

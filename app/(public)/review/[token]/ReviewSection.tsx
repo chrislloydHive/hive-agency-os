@@ -1263,7 +1263,7 @@ function PlacementGroupCard({
                             className="h-full w-full object-cover"
                           />
                         )}
-                        {/* Video play icon overlay */}
+                        {!reviewTacticPrefersAnimatedMuxPreview(tactic) && (
                         <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
                           <div className="rounded-full bg-black/60 p-2">
                             <svg className="h-5 w-5 text-white" fill="currentColor" viewBox="0 0 20 20">
@@ -1271,6 +1271,7 @@ function PlacementGroupCard({
                             </svg>
                           </div>
                         </div>
+                        )}
                       </div>
                     )}
                     {isAudio && (
@@ -1614,7 +1615,7 @@ function AssetCard({
                 />
               </div>
             )}
-            {/* Play icon overlay */}
+            {!reviewTacticPrefersAnimatedMuxPreview(tactic) && (
             <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
               <div className="rounded-full bg-black/60 p-3 transition-transform group-hover:scale-110">
                 <svg className="h-8 w-8 text-white" fill="currentColor" viewBox="0 0 24 24">
@@ -1622,6 +1623,7 @@ function AssetCard({
                 </svg>
               </div>
             </div>
+            )}
           </>
         )}
         {isAudio && (

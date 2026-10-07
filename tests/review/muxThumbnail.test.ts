@@ -6,6 +6,8 @@ import {
   muxPortalPosterWarmUrls,
   muxAnimatedPreviewUrls,
   muxPortalPosterUrls,
+  muxPortalPosterDisplayUrls,
+  muxProgressiveMp4Url,
   reviewTacticPrefersAnimatedMuxPreview,
   MUX_PORTAL_GRID_POSTER,
 } from '@/lib/review/muxThumbnail';
@@ -33,6 +35,11 @@ describe('muxThumbnailUrl', () => {
     }
   });
 
+  it('muxProgressiveMp4Url points at stream.mux.com renditions', () => {
+    expect(muxProgressiveMp4Url('pb_abc')).toBe('https://stream.mux.com/pb_abc/low.mp4');
+    expect(muxProgressiveMp4Url('pb_abc', 'medium')).toBe('https://stream.mux.com/pb_abc/medium.mp4');
+  });
+
   it('muxAnimatedPreviewUrls prefers webp then gif and clamps width', () => {
     const urls = muxAnimatedPreviewUrls('pb_abc', { width: 960 });
     expect(urls[0]).toContain('/animated.webp?');
@@ -46,6 +53,12 @@ describe('muxThumbnailUrl', () => {
     const urls = muxPortalPosterUrls('pb_abc', 'grid', { animated: true });
     expect(urls[0]).toContain('/animated.webp?');
     expect(urls).toContain(muxThumbnailUrl('pb_abc'));
+  });
+
+  it('static display URLs do not include animated previews (grid paints a still first)', () => {
+    const urls = muxPortalPosterDisplayUrls('pb_abc', 'grid', '16:9');
+    expect(urls[0]).toBe(muxThumbnailUrl('pb_abc'));
+    expect(urls.some((u) => u.includes('/animated.'))).toBe(false);
   });
 
   it('reviewTacticPrefersAnimatedMuxPreview is Display-only', () => {
