@@ -12,12 +12,23 @@ import { AIRTABLE_TABLES } from '@/lib/airtable/tables';
 import { restListTableRecords } from '@/lib/review/airtableReviewRest';
 import {
   listAssetStatuses,
+  batchEnsureCrasRecords,
   getDriveFileIdsForBatch,
   isStatusRecordVisibleInPortal,
+  statusRecordForDriveFile,
   type StatusRecord,
 } from '@/lib/airtable/reviewAssetStatus';
-import { resolveReviewVariantFolderMap } from '@/lib/review/reviewFolders';
-import { isDriveFileEligibleForReviewPortal, hiddenPortalAssetNames, normalizePortalAssetName } from '@/lib/review/reviewPortalVisibility';
+import { listPortalFolderChildren, resolveReviewVariantFolderMap } from '@/lib/review/reviewFolders';
+import {
+  isDriveFileEligibleForReviewPortal,
+  hiddenPortalAssetNames,
+  matchPortalListedFile,
+  normalizePortalAssetName,
+  portalDisplayFileId,
+  portalListedFileFromChild,
+  portalListedFileIds,
+  type PortalListedFile,
+} from '@/lib/review/reviewPortalVisibility';
 import { getGroupApprovals, groupKey } from '@/lib/airtable/reviewGroupApprovals';
 import {
   getDeliveryContextByProjectId,
@@ -29,7 +40,7 @@ import {
 } from '@/lib/airtable/partnerDeliveryBatches';
 // Folder map imports removed — portal visibility now controlled by "Show in Client Portal" CRAS field
 import type { drive_v3 } from 'googleapis';
-import { resolveInlineContentType } from '@/lib/review/reviewMediaDisplay';
+import { resolveInlineContentType, reviewAssetIsDocumentFile } from '@/lib/review/reviewMediaDisplay';
 import { driveErrorsSuggestServiceAccountFallback, flattenGoogleDriveError, isDriveNotFoundError } from '@/lib/review/googleDriveErrors';
 import { getDriveClientWithServiceAccount } from '@/lib/google/driveClient';
 import { requestReviewMuxBackfill } from '@/lib/review/requestMuxBackfill';
@@ -49,6 +60,55 @@ function normalizeTactic(name: string): string {
     return 'OOH';
   }
   return name.charAt(0).toUpperCase() + name.slice(1);
+}
+
+function partitionPortalCras(statusMap: Map<string, StatusRecord>): {
+  allCrasRecords: StatusRecord[];
+  visibleCrasRecords: StatusRecord[];
+  skippedHiddenCount: number;
+  skippedPortalFlagCount: number;
+  skippedFiles: Array<{ fileId: string; filename: string | null; reason: string }>;
+} {
+  const allCrasRecords = Array.from(statusMap.values());
+  const visibleCrasRecords: StatusRecord[] = [];
+  let skippedHiddenCount = 0;
+  let skippedPortalFlagCount = 0;
+  const skippedFiles: Array<{ fileId: string; filename: string | null; reason: string }> = [];
+  for (const rec of allCrasRecords) {
+    if (rec.hidden) {
+      skippedHiddenCount++;
+      continue;
+    }
+    if (!isStatusRecordVisibleInPortal(rec)) {
+      skippedPortalFlagCount++;
+      continue;
+    }
+    visibleCrasRecords.push(rec);
+  }
+
+  const hiddenNames = hiddenPortalAssetNames(allCrasRecords);
+  const visibleAfterNameGate: StatusRecord[] = [];
+  for (const rec of visibleCrasRecords) {
+    const n = rec.filename ? normalizePortalAssetName(rec.filename) : '';
+    if (n && hiddenNames.has(n)) {
+      skippedPortalFlagCount++;
+      skippedFiles.push({
+        fileId: rec.driveFileId,
+        filename: rec.filename,
+        reason: 'same filename as a CRAS row with Show in Client Portal unchecked',
+      });
+      continue;
+    }
+    visibleAfterNameGate.push(rec);
+  }
+
+  return {
+    allCrasRecords,
+    visibleCrasRecords: visibleAfterNameGate,
+    skippedHiddenCount,
+    skippedPortalFlagCount,
+    skippedFiles,
+  };
 }
 
 export type ReviewState = 'new' | 'seen' | 'approved' | 'needs_changes';
@@ -304,46 +364,8 @@ export async function GET(req: NextRequest) {
 
     const primaryLandingPageUrl = project.primaryLandingPageUrl ?? null;
 
-    // Filter assets: Show in Client Portal must be checked. Hidden is always excluded.
-    const allCrasRecords = Array.from(statusMap.values());
-
-    const visibleCrasRecords: StatusRecord[] = [];
-    let skippedHiddenCount = 0;
-    let skippedPortalFlagCount = 0;
-    const skippedFiles: Array<{ fileId: string; filename: string | null; reason: string }> = [];
-    for (const rec of allCrasRecords) {
-      if (rec.hidden) {
-        skippedHiddenCount++;
-        continue;
-      }
-      if (!isStatusRecordVisibleInPortal(rec)) {
-        skippedPortalFlagCount++;
-        continue;
-      }
-      visibleCrasRecords.push(rec);
-    }
-
-    const hiddenNames = hiddenPortalAssetNames(allCrasRecords);
-    const visibleAfterNameGate: StatusRecord[] = [];
-    for (const rec of visibleCrasRecords) {
-      const n = rec.filename ? normalizePortalAssetName(rec.filename) : '';
-      if (n && hiddenNames.has(n)) {
-        skippedPortalFlagCount++;
-        skippedFiles.push({
-          fileId: rec.driveFileId,
-          filename: rec.filename,
-          reason: 'same filename as a CRAS row with Show in Client Portal unchecked',
-        });
-        continue;
-      }
-      visibleAfterNameGate.push(rec);
-    }
-    visibleCrasRecords.length = 0;
-    visibleCrasRecords.push(...visibleAfterNameGate);
-
-    console.log(`[review/assets] Filtering: ${allCrasRecords.length} total, ${visibleCrasRecords.length} visible, ${skippedHiddenCount} hidden, ${skippedPortalFlagCount} not in portal`);
-
     const allowedFolderIds = new Set<string>();
+    const folderIdBySection = new Map<string, string>();
     try {
       const reviewBaseId = resolveProjectsBaseId();
       if (reviewBaseId) {
@@ -354,8 +376,14 @@ export async function GET(req: NextRequest) {
         });
         for (const set of reviewSets) {
           const folderId = set.fields['Folder ID'];
-          if (typeof folderId === 'string' && folderId.trim()) {
-            allowedFolderIds.add(folderId.trim());
+          const variant = set.fields['Variant'];
+          const tacticRaw = set.fields['Tactic'];
+          if (typeof folderId !== 'string' || !folderId.trim()) continue;
+          const id = folderId.trim();
+          allowedFolderIds.add(id);
+          if (typeof variant === 'string' && variant.trim() && typeof tacticRaw === 'string' && tacticRaw.trim()) {
+            const tactic = normalizeTactic(tacticRaw) || tacticRaw.trim();
+            folderIdBySection.set(`${variant.trim()}:${tactic}`, id);
           }
         }
       }
@@ -365,11 +393,85 @@ export async function GET(req: NextRequest) {
     if (project.jobFolderId) {
       try {
         const { map } = await resolveReviewVariantFolderMap(drive, project.jobFolderId);
-        for (const folderId of map.values()) allowedFolderIds.add(folderId);
+        for (const [key, folderId] of map.entries()) {
+          allowedFolderIds.add(folderId);
+          folderIdBySection.set(key, folderId);
+        }
       } catch (err) {
         console.warn('[review/assets] review variant folder map failed (non-fatal):', err instanceof Error ? err.message : err);
       }
     }
+
+    let listedFiles: PortalListedFile[] = [];
+    if (allowedFolderIds.size > 0) {
+      try {
+        const children = await listPortalFolderChildren(drive, allowedFolderIds);
+        listedFiles = children.map((child) => portalListedFileFromChild(child));
+        console.log(`[review/assets] Listed ${listedFiles.length} files in ${allowedFolderIds.size} review folders`);
+      } catch (err) {
+        console.warn('[review/assets] review folder listing failed (non-fatal):', err instanceof Error ? err.message : err);
+      }
+    }
+    const listedFileIds = portalListedFileIds(listedFiles);
+
+    const sectionByFolderId = new Map<string, { variant: string; tactic: string }>();
+    for (const [key, folderId] of folderIdBySection) {
+      const sep = key.indexOf(':');
+      if (sep <= 0) continue;
+      sectionByFolderId.set(folderId, {
+        variant: key.slice(0, sep),
+        tactic: key.slice(sep + 1),
+      });
+    }
+    const missingCras: Array<{ fileId: string; filename: string; tactic: string; variant: string }> = [];
+    const seenMissing = new Set<string>();
+    for (const file of listedFiles) {
+      if (
+        statusRecordForDriveFile(statusMap, token, file.listedId) ||
+        statusRecordForDriveFile(statusMap, token, file.fileId)
+      ) {
+        continue;
+      }
+      const section = sectionByFolderId.get(file.folderId);
+      if (!section) continue;
+      const fileId = file.listedId || file.fileId;
+      if (!fileId || seenMissing.has(fileId)) continue;
+      seenMissing.add(fileId);
+      missingCras.push({
+        fileId,
+        filename: file.name,
+        tactic: section.tactic,
+        variant: section.variant,
+      });
+    }
+    if (missingCras.length > 0) {
+      try {
+        const ensured = await batchEnsureCrasRecords(token, project.recordId, missingCras, {
+          folderIds: [...allowedFolderIds],
+        });
+        console.log('[review/assets] Created CRAS rows for Drive files missing from Airtable', {
+          missing: missingCras.length,
+          created: ensured.created,
+          skipped: ensured.skipped,
+          errors: ensured.errors,
+          filenames: missingCras.map((file) => file.filename),
+        });
+        if (ensured.created > 0) {
+          statusMap = await listAssetStatuses(token);
+        }
+      } catch (err) {
+        console.warn('[review/assets] CRAS backfill failed (non-fatal):', err instanceof Error ? err.message : err);
+      }
+    }
+
+    const {
+      allCrasRecords,
+      visibleCrasRecords,
+      skippedHiddenCount,
+      skippedPortalFlagCount,
+      skippedFiles,
+    } = partitionPortalCras(statusMap);
+    console.log(`[review/assets] Filtering: ${allCrasRecords.length} total, ${visibleCrasRecords.length} visible, ${skippedHiddenCount} hidden, ${skippedPortalFlagCount} not in portal`);
 
     // Fetch Drive metadata (mimeType, modifiedTime, parents, trashed) for visible assets
     let driveMetaMap = new Map<string, DriveFileMeta>();
@@ -417,6 +519,16 @@ export async function GET(req: NextRequest) {
         continue;
       }
 
+      const key = `${variant}:${tactic}`;
+      const listed = matchPortalListedFile(
+        listedFiles,
+        rec.driveFileId,
+        rec.filename,
+        folderIdBySection.get(key) ?? null,
+      );
+      const presentInReviewFolder =
+        listedFileIds.has(rec.driveFileId) ||
+        (listed != null && (listedFileIds.has(listed.fileId) || listedFileIds.has(listed.listedId)));
       const driveMeta = driveMetaMap.get(rec.driveFileId);
       if (!isDriveFileEligibleForReviewPortal({
         meta: driveMeta
@@ -424,6 +536,7 @@ export async function GET(req: NextRequest) {
           : null,
         notFound: driveNotFoundIds.has(rec.driveFileId),
         allowedFolderIds: allowedFolderIds.size > 0 ? allowedFolderIds : null,
+        presentInReviewFolder,
       })) {
         skippedDriveGoneCount++;
         skippedFiles.push({
@@ -434,8 +547,17 @@ export async function GET(req: NextRequest) {
         continue;
       }
 
-      const key = `${variant}:${tactic}`;
       const asset = statusRecordToReviewAsset(rec, primaryLandingPageUrl, driveMeta);
+      const displayFileId = portalDisplayFileId(rec.driveFileId, listed);
+      if (displayFileId !== asset.fileId) {
+        asset.fileId = displayFileId;
+      }
+      if (listed?.mimeType) {
+        asset.mimeType = resolveInlineContentType(listed.mimeType, listed.name || asset.name);
+      }
+      if (listed?.modifiedTime && !asset.modifiedTime) {
+        asset.modifiedTime = listed.modifiedTime;
+      }
 
       const sectionAssets = sectionMap.get(key);
       if (sectionAssets) {
@@ -579,7 +701,11 @@ export async function GET(req: NextRequest) {
     // would hide every creative asset. Skip scoping in that case (creative review).
     if (batchFileIds !== null && batchFileIds.size > 0) {
       for (const section of sections) {
-        section.assets = section.assets.filter((a) => batchFileIds!.has(a.fileId));
+        section.assets = section.assets.filter(
+          (a) =>
+            batchFileIds!.has(a.fileId) ||
+            reviewAssetIsDocumentFile(a.mimeType, a.name),
+        );
         section.fileCount = section.assets.length;
       }
     } else if (batchFileIds !== null && batchFileIds.size === 0 && selectedBatchId) {

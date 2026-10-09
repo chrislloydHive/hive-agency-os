@@ -30,6 +30,7 @@ import {
 import { resolveInlineContentType } from '@/lib/review/reviewMediaDisplay';
 import { driveThumbnailUrlAtSize } from '@/lib/review/driveThumbnail';
 import { driveErrorsSuggestServiceAccountFallback, flattenGoogleDriveError } from '@/lib/review/googleDriveErrors';
+import { followDriveShortcut } from '@/lib/review/followDriveShortcut';
 
 export const dynamic = 'force-dynamic';
 /** Node required: googleapis streams, Readable.toWeb, Drive proxy. */
@@ -248,6 +249,16 @@ export async function GET(
   console.log('[review/files] authorized', authorized, 'viaDriveAllowlist', authorizedViaDriveAllowlist, {
     fileId: fileId.slice(0, 12),
   });
+  if (authorized) {
+    const followedId = await followDriveShortcut(drive, fileId);
+    if (followedId !== fileId) {
+      console.log('[review/files] following Drive shortcut', {
+        from: fileId.slice(0, 12),
+        to: followedId.slice(0, 12),
+      });
+      fileId = followedId;
+    }
+  }
   if (!authorized) {
     return jsonError(403, 'File not found for this review');
   }

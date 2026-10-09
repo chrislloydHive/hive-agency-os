@@ -5,6 +5,7 @@
 
 import type { drive_v3 } from 'googleapis';
 import { getDriveClientWithServiceAccount } from '@/lib/google/driveClient';
+import { isReviewWordDoc } from '@/lib/review/reviewMediaDisplay';
 import { detectVariantFromPath } from '@/lib/review/reviewVariantDetection';
 
 const VARIANTS = ['Prospecting', 'Retargeting'] as const;
@@ -95,6 +96,105 @@ export async function resolveReviewVariantFolderMap(
   return getReviewFolderMapFromJobFolderPartial(drive, clientReviewFolderId);
 }
 
+export interface PortalFolderChild {
+  folderId: string;
+  id: string;
+  name: string;
+  mimeType: string;
+  modifiedTime: string;
+  shortcutTargetId: string | null;
+  shortcutTargetMimeType: string | null;
+}
+
+function isInternalReviewSubfolder(name: string): boolean {
+  const n = name.trim().toLowerCase();
+  if (!n) return true;
+  return (
+    n.includes('production') ||
+    n.includes('animated display') ||
+    n === 'evergreen' ||
+    n === 'promotions'
+  );
+}
+
+/**
+ * Word docs and Google Docs one folder below a variant folder (for example
+ * Prospecting/Documents/Brief.docx). Production and animated-display subfolders
+ * are skipped so those video copies are not ingested.
+ */
+async function listNestedWordDocs(
+  drive: drive_v3.Drive,
+  variantFolderId: string,
+): Promise<PortalFolderChild[]> {
+  const folders = await listChildFolders(drive, variantFolderId);
+  const out: PortalFolderChild[] = [];
+  for (const folder of folders) {
+    if (isInternalReviewSubfolder(folder.name)) continue;
+    const children = await listPortalFolderChildrenOne(drive, folder.id);
+    for (const child of children) {
+      const mime = child.shortcutTargetMimeType || child.mimeType;
+      if (!isReviewWordDoc(mime, child.name)) continue;
+      out.push({ ...child, folderId: variantFolderId });
+    }
+  }
+  return out;
+}
+
+/** Direct non-folder children of review variant folders, plus Word/Google Docs one level down. */
+export async function listPortalFolderChildren(
+  drive: drive_v3.Drive,
+  folderIds: Iterable<string>,
+): Promise<PortalFolderChild[]> {
+  const ids = [...new Set([...folderIds].map((id) => id.trim()).filter(Boolean))];
+  const groups = await Promise.all(
+    ids.map(async (folderId) => {
+      try {
+        const direct = await listPortalFolderChildrenOne(drive, folderId);
+        const nestedDocs = await listNestedWordDocs(drive, folderId);
+        return [...direct, ...nestedDocs];
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        console.warn(`[reviewFolders] listPortalFolderChildren failed for ${folderId}: ${msg}`);
+        return [];
+      }
+    }),
+  );
+  return groups.flat();
+}
+
+async function listPortalFolderChildrenOne(
+  drive: drive_v3.Drive,
+  folderId: string,
+): Promise<PortalFolderChild[]> {
+  const out: PortalFolderChild[] = [];
+  let pageToken: string | undefined;
+  do {
+    const res = await drive.files.list({
+      q: `'${folderId}' in parents and mimeType != 'application/vnd.google-apps.folder' and trashed = false`,
+      fields:
+        'nextPageToken, files(id, name, mimeType, modifiedTime, shortcutDetails(targetId, targetMimeType))',
+      supportsAllDrives: true,
+      includeItemsFromAllDrives: true,
+      pageSize: 1000,
+      pageToken,
+    });
+    for (const file of res.data.files ?? []) {
+      if (!file.id) continue;
+      out.push({
+        folderId,
+        id: file.id,
+        name: file.name ?? '',
+        mimeType: file.mimeType ?? 'application/octet-stream',
+        modifiedTime: file.modifiedTime ?? '',
+        shortcutTargetId: file.shortcutDetails?.targetId?.trim() || null,
+        shortcutTargetMimeType: file.shortcutDetails?.targetMimeType?.trim() || null,
+      });
+    }
+    pageToken = res.data.nextPageToken ?? undefined;
+  } while (pageToken);
+  return out;
+}
+
 async function listDirectNonFolderFiles(
   drive: drive_v3.Drive,
   folderId: string,
@@ -139,6 +239,16 @@ export async function listFilesInReviewVariantFolders(
       out.push({
         id: file.id,
         name: file.name,
+        tactic,
+        variant,
+        folderId,
+      });
+    }
+    const nestedDocs = await listNestedWordDocs(drive, folderId);
+    for (const doc of nestedDocs) {
+      out.push({
+        id: doc.id,
+        name: doc.name,
         tactic,
         variant,
         folderId,

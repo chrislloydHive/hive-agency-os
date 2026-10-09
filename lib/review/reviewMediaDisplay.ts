@@ -50,6 +50,24 @@ export function reviewAssetIsAudio(mimeType: string, filename: string): boolean 
   return reviewAssetDisplayKind(mimeType, filename) === 'audio';
 }
 
+/** Google Docs, PDFs, and other non-media files. These stay visible in the portal even when a partner delivery tab is filtering videos. */
+export function reviewAssetIsDocumentFile(mimeType: string, filename: string): boolean {
+  return reviewAssetDisplayKind(mimeType, filename) === 'file';
+}
+
+/** Word (.doc/.docx) and Google Docs. These are the files that belong in Airtable even when they sit in a subfolder of a review variant folder. */
+export function isReviewWordDoc(mimeType: string, filename: string): boolean {
+  const mime = mimeType.trim().toLowerCase();
+  if (
+    mime === 'application/msword' ||
+    mime === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' ||
+    mime === 'application/vnd.google-apps.document'
+  ) {
+    return true;
+  }
+  return /\.docx?$/i.test(filename.trim());
+}
+
 /** When Drive returns empty or octet-stream, set a concrete mime for clients (optional UX). */
 export function inferMimeTypeFromFilename(filename: string): string | null {
   const lower = filename.trim().toLowerCase();

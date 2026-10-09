@@ -14,6 +14,7 @@ import {
   reviewAssetIsImage,
   reviewAssetIsVideo,
 } from '@/lib/review/reviewMediaDisplay';
+import DriveFileThumbnail from './DriveFileThumbnail';
 import { ReviewAudioPlayer } from './ReviewAudioPlayer';
 import { reviewFileDownloadHref } from './ReviewSection';
 import type { ReviewState } from './ReviewPortalClient';
@@ -823,11 +824,14 @@ export default function AssetLightbox({
           )}
           {!isImage && !isVideo && !isAudio && (
             <MediaStage>
-              <div className="flex h-full w-full flex-col items-center justify-center gap-4 rounded-lg bg-gray-800 p-8">
-                <svg className="h-16 w-16 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-                </svg>
-                <p className="text-gray-400">Preview not available</p>
+              <div className="flex h-full w-full flex-col items-center justify-center gap-4 rounded-lg bg-gray-800 p-4">
+                <DriveFileThumbnail
+                  fileId={asset.fileId}
+                  token={token}
+                  crasRecordId={asset.airtableRecordId}
+                  alt={asset.name}
+                  className="max-h-[70vh] w-full object-contain"
+                />
                 <a
                   href={`${src}&dl=1`}
                   download

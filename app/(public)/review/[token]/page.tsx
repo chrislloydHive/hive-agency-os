@@ -317,7 +317,7 @@ async function listAllFiles(
   while (true) {
     const listParams: drive_v3.Params$Resource$Files$List = {
       q: `'${folderId}' in parents and mimeType != 'application/vnd.google-apps.folder' and trashed = false`,
-      fields: 'nextPageToken, files(id, name, mimeType, modifiedTime)',
+      fields: 'nextPageToken, files(id, name, mimeType, modifiedTime, shortcutDetails(targetId, targetMimeType))',
       orderBy: 'modifiedTime desc',
       supportsAllDrives: true,
       includeItemsFromAllDrives: true,
@@ -327,12 +327,19 @@ async function listAllFiles(
     const res = await drive.files.list(listParams);
     const data: drive_v3.Schema$FileList = res.data;
 
-    const files = (data.files ?? []).map((f) => ({
-      fileId: f.id!,
-      name: f.name!,
-      mimeType: f.mimeType || 'application/octet-stream',
-      modifiedTime: f.modifiedTime || '',
-    }));
+    const files = (data.files ?? []).map((f) => {
+      const shortcutMime = f.shortcutDetails?.targetMimeType?.trim();
+      const mimeType =
+        f.mimeType === 'application/vnd.google-apps.shortcut' && shortcutMime
+          ? shortcutMime
+          : f.mimeType || 'application/octet-stream';
+      return {
+        fileId: f.id!,
+        name: f.name!,
+        mimeType,
+        modifiedTime: f.modifiedTime || '',
+      };
+    });
 
     allFiles.push(...files);
     const nextToken = data.nextPageToken ?? undefined;

@@ -25,9 +25,6 @@ import {
   CRAS_MUX_PLAYBACK_ID_FIELD,
   CRAS_MUX_STATUS_FIELD,
 } from '@/lib/mux/crasMuxFields';
-import {
-  normalizePortalAssetName,
-} from '@/lib/review/reviewPortalVisibility';
 
 const TABLE = AIRTABLE_TABLES.CREATIVE_REVIEW_ASSET_STATUS;
 
@@ -925,7 +922,7 @@ export async function getDriveFileIdsForBatch(
   const fileIds = new Set<string>();
   for (const r of records) {
     const raw = (r.fields as Record<string, unknown>)[SOURCE_FOLDER_ID_FIELD];
-    const driveId = typeof raw === 'string' ? raw.trim() : '';
+    const driveId = extractDriveFileIdFromCrasSourceField(raw);
     if (driveId) fileIds.add(driveId);
   }
   return fileIds;
@@ -1178,40 +1175,6 @@ async function listExistingCrasFileIdsRest(
   return found;
 }
 
-async function listExistingCrasFilenamesForToken(
-  baseId: string,
-  tokenEsc: string,
-): Promise<Set<string>> {
-  const names = new Set<string>();
-  let offset: string | undefined;
-  do {
-    const params = new URLSearchParams();
-    params.set('filterByFormula', `{${REVIEW_CRAS_TOKEN_FIELD}} = "${tokenEsc}"`);
-    params.set('pageSize', '100');
-    params.append('fields[]', 'Filename');
-    if (offset) params.set('offset', offset);
-    const url = `https://api.airtable.com/v0/${baseId}/${encodeURIComponent(TABLE)}?${params.toString()}`;
-    const res = await fetchWithRetry(url, { method: 'GET' });
-    if (!res.ok) {
-      const text = await res.text();
-      throw new Error(`Airtable list CRAS filenames (${res.status}): ${text.slice(0, 400)}`);
-    }
-    const json = (await res.json()) as {
-      records?: Array<{ fields?: Record<string, unknown> }>;
-      offset?: string;
-    };
-    for (const r of json.records ?? []) {
-      const filename = r.fields?.Filename;
-      if (typeof filename === 'string' && filename.trim()) {
-        const n = normalizePortalAssetName(filename);
-        if (n) names.add(n);
-      }
-    }
-    offset = json.offset;
-  } while (offset);
-  return names;
-}
-
 async function batchCreateCrasRest(
   baseId: string,
   recordsPayload: Array<{ fields: Record<string, unknown> }>,
@@ -1288,23 +1251,15 @@ export async function batchEnsureCrasRecords(
     }
   }
 
-  const existingFilenames = new Set<string>();
-  try {
-    const names = await listExistingCrasFilenamesForToken(baseId, tokenEsc);
-    for (const n of names) existingFilenames.add(n);
-  } catch (err) {
-    console.warn('[batchEnsureCrasRecords] Failed to load existing CRAS filenames:', err);
-  }
-
   const toCreate: Array<{ fileId: string; filename?: string; tactic: string; variant: string }> = [];
   for (const asset of assets) {
-    const nameKey = asset.filename ? normalizePortalAssetName(asset.filename) : '';
-    if (existingMap.has(asset.fileId) || (nameKey && existingFilenames.has(nameKey))) {
+    // Dedupe on Drive file id only. A Word doc in the folder must get its own
+    // row even when another asset shares the title.
+    if (existingMap.has(asset.fileId)) {
       skipped++;
       continue;
     }
     toCreate.push(asset);
-    if (nameKey) existingFilenames.add(nameKey);
   }
 
   if (toCreate.length === 0) {

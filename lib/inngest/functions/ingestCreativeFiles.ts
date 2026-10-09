@@ -1,6 +1,7 @@
 // lib/inngest/functions/ingestCreativeFiles.ts
 // Scheduled cron: discover newly-uploaded files in Client Review variant folders
 // (Prospecting/Retargeting × tactic) and create CRAS records for them.
+// Also picks up Word docs and Google Docs one folder below those variant folders.
 // Does not scan Evergreen, Promotions, or _Production Assets — those copies
 // were recreating CRAS rows after files were deleted from the review folders.
 //

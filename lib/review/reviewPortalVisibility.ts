@@ -13,6 +13,91 @@ export interface ReviewPortalDriveEligibility {
    * Empty/null skips the parent check (folder map unavailable).
    */
   allowedFolderIds: Set<string> | null;
+  /**
+   * The CRAS file id, or a shortcut sitting in a review folder that points at it,
+   * was listed as a direct child of a variant folder. Google Docs are often
+   * shortcuts whose target parent is outside the review folder; listing the
+   * folder is what proves the document is actually there.
+   */
+  presentInReviewFolder?: boolean;
+}
+
+/** A non-folder file listed directly inside a Client Review variant folder. */
+export interface PortalListedFile {
+  folderId: string;
+  /** Id of the item that is actually in the folder (the shortcut, when one was added). */
+  listedId: string;
+  /** Id to preview (shortcut target when the folder child is a shortcut). */
+  fileId: string;
+  name: string;
+  mimeType: string;
+  modifiedTime: string;
+}
+
+export function portalShortcutTargetId(file: {
+  mimeType?: string | null;
+  shortcutDetails?: { targetId?: string | null; targetMimeType?: string | null } | null;
+}): { targetId: string; targetMimeType: string | null } | null {
+  if ((file.mimeType ?? '') !== 'application/vnd.google-apps.shortcut') return null;
+  const targetId = file.shortcutDetails?.targetId?.trim() ?? '';
+  if (!targetId) return null;
+  const targetMimeType = file.shortcutDetails?.targetMimeType?.trim() || null;
+  return { targetId, targetMimeType };
+}
+
+export function portalListedFileFromChild(child: {
+  folderId: string;
+  id: string;
+  name: string;
+  mimeType?: string | null;
+  modifiedTime?: string | null;
+  shortcutTargetId?: string | null;
+  shortcutTargetMimeType?: string | null;
+}): PortalListedFile {
+  const targetId = child.shortcutTargetId?.trim() || '';
+  return {
+    folderId: child.folderId,
+    listedId: child.id,
+    fileId: targetId || child.id,
+    name: child.name,
+    mimeType: child.shortcutTargetMimeType?.trim() || child.mimeType?.trim() || 'application/octet-stream',
+    modifiedTime: child.modifiedTime?.trim() || '',
+  };
+}
+
+export function portalListedFileIds(files: Iterable<PortalListedFile>): Set<string> {
+  const ids = new Set<string>();
+  for (const file of files) {
+    if (file.fileId) ids.add(file.fileId);
+    if (file.listedId) ids.add(file.listedId);
+  }
+  return ids;
+}
+
+/**
+ * Match a CRAS row to the file currently in its review folder.
+ * Prefers the same Drive id, then a same-name file in that variant folder
+ * (stale CRAS id, live Google Doc / shortcut in the folder).
+ */
+export function matchPortalListedFile(
+  files: readonly PortalListedFile[],
+  driveFileId: string,
+  filename: string | null,
+  folderId?: string | null,
+): PortalListedFile | null {
+  const scope = folderId ? files.filter((file) => file.folderId === folderId) : files;
+  const id = driveFileId.trim();
+  const byId = scope.find((file) => file.fileId === id || file.listedId === id);
+  if (byId) return byId;
+  if (!filename) return null;
+  return scope.find((file) => portalAssetNamesMatch(file.name, filename)) ?? null;
+}
+
+/** Keep the CRAS id when it is the listed file or its shortcut; otherwise use the live folder file. */
+export function portalDisplayFileId(crasFileId: string, listed: PortalListedFile | null): string {
+  if (!listed) return crasFileId;
+  if (crasFileId === listed.fileId || crasFileId === listed.listedId) return crasFileId;
+  return listed.fileId;
 }
 
 /** Lowercase basename without extension/punctuation, for matching Google Docs to CRAS rows. */
@@ -49,8 +134,11 @@ export function hiddenPortalAssetNames(records: Iterable<{ filename: string | nu
  * variant folders (e.g. copies under _Production Assets that ingest used to pick up).
  */
 export function isDriveFileEligibleForReviewPortal(input: ReviewPortalDriveEligibility): boolean {
-  if (input.notFound) return false;
   if (input.meta?.trashed) return false;
+  // Listed in the review folder wins over a 404 or a parent that points at the
+  // shortcut target's original location (typical for Google Docs).
+  if (input.presentInReviewFolder) return true;
+  if (input.notFound) return false;
 
   const allowed = input.allowedFolderIds;
   if (!allowed || allowed.size === 0) return true;

@@ -15,6 +15,7 @@ import ReviewSection from './ReviewSection';
 import LazyMountSection from './LazyMountSection';
 import { AuthorIdentityProvider, useAuthorIdentity } from './AuthorIdentityContext';
 import { mergeReviewSections } from '@/lib/review/mergeReviewSections';
+import { reviewAssetIsDocumentFile } from '@/lib/review/reviewMediaDisplay';
 import {
   formatPendingTypeBreakdown,
   getPortalApprovalStats,
@@ -518,12 +519,15 @@ function ReviewPortalClientInner({
   const partnerFilterSections = useCallback(
     (secs: TacticSectionData[], tab: 'new' | 'all_approved' | 'downloaded') => {
       return secs.map((sec) => {
-        const filtered =
+        const matchesTab =
           tab === 'new'
-            ? sec.assets.filter(isNewlyApproved)
+            ? isNewlyApproved
             : tab === 'all_approved'
-              ? sec.assets.filter((a) => a.assetApprovedClient)
-              : sec.assets.filter(isPartnerDownloaded);
+              ? (a: ReviewAsset) => a.assetApprovedClient === true
+              : isPartnerDownloaded;
+        const filtered = sec.assets.filter(
+          (a) => reviewAssetIsDocumentFile(a.mimeType, a.name) || matchesTab(a),
+        );
         return { ...sec, assets: filtered, fileCount: filtered.length };
       });
     },
