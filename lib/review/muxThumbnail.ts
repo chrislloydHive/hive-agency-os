@@ -142,8 +142,10 @@ export function muxPortalPosterDisplayUrls(
   muxAspectRatio?: string | null,
 ): string[] {
   const base = layout === 'carousel' ? muxCarouselPosterUrls(playbackId) : muxGridPosterUrls(playbackId);
-  const fallbacks = muxPosterFallbackUrls(playbackId, muxAspectRatio, layout);
-  return [...new Set([...base, ...fallbacks])];
+  const fitted = muxPosterFallbackUrls(playbackId, muxAspectRatio, layout);
+  // Grid: full creative first (preserve aspect). Carousel tiles stay square smartcrops.
+  if (layout === 'grid') return [...new Set([...fitted, ...base])];
+  return [...new Set([...base, ...fitted])];
 }
 
 /**
@@ -170,7 +172,7 @@ export function muxProgressiveMp4Url(
 
 export function muxAnimatedPreviewUrls(
   playbackId: string,
-  opts?: { width?: number; fps?: number; endSeconds?: number },
+  opts?: { width?: number; fps?: number; startSeconds?: number; endSeconds?: number },
 ): string[] {
   const id = playbackId.trim();
   if (!id) return [];
@@ -179,10 +181,14 @@ export function muxAnimatedPreviewUrls(
     Math.max(120, Math.round(opts?.width ?? 480)),
   );
   const fps = opts?.fps ?? 8;
+  // t=0 on these banner masters is often a white/gray slate. Start later so the
+  // looping preview is the actual creative.
+  const startSeconds = opts?.startSeconds ?? 1;
   const endSeconds = opts?.endSeconds ?? 4;
   const common = new URLSearchParams({
     width: String(width),
     fps: String(fps),
+    start: String(startSeconds),
     end: String(endSeconds),
   });
   return [
@@ -246,8 +252,13 @@ export function muxGridPosterConfig(muxAspectRatio: string | null | undefined): 
   const ratio = widthNum / heightNum;
   if (ratio > GRID_LEADERBOARD_ASPECT_THRESHOLD) {
     return {
-      thumbnail: { squareLogicalPx: 300, fitMode: 'smartcrop' },
-      containerAspectRatio: '16/9',
+      thumbnail: {
+        logicalWidthPx: 640,
+        fitMode: 'preserve',
+        muxAspectRatio,
+        timeSeconds: MUX_PORTAL_GRID_POSTER.time,
+      },
+      containerAspectRatio: muxAspectRatioCssString(muxAspectRatio),
       containerMinHeightPx: 72,
     };
   }
@@ -256,6 +267,7 @@ export function muxGridPosterConfig(muxAspectRatio: string | null | undefined): 
       logicalWidthPx: 300,
       fitMode: 'preserve',
       muxAspectRatio,
+      timeSeconds: MUX_PORTAL_GRID_POSTER.time,
     },
     containerAspectRatio: muxAspectRatioCssString(muxAspectRatio),
   };

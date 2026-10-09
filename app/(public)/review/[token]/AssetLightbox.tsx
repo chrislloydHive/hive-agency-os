@@ -25,7 +25,7 @@ import {
 import { REVIEW_APPROVE_BUTTON_CLASS, REVIEW_APPROVED_INDICATOR_CLASS } from './reviewAssetUtils';
 import MuxPlayer from '@mux/mux-player-react';
 import {
-  muxThumbnailUrl,
+  muxThumbnailImageUrl,
   parseMuxAspectDimensions,
   reviewTacticPrefersAnimatedMuxPreview,
 } from '@/lib/review/muxThumbnail';
@@ -121,11 +121,22 @@ function LightboxMuxVideo({
   variant: 'display' | 'video';
 }) {
   const isDisplay = variant === 'display';
-  const poster = useMemo(() => muxThumbnailUrl(playbackId), [playbackId]);
+  const poster = useMemo(
+    () =>
+      muxThumbnailImageUrl(playbackId, {
+        logicalWidthPx: 960,
+        fitMode: 'preserve',
+        muxAspectRatio,
+        timeSeconds: 1.5,
+      }),
+    [playbackId, muxAspectRatio],
+  );
   const [playing, setPlaying] = useState(false);
+  const [failed, setFailed] = useState(false);
 
   useEffect(() => {
     setPlaying(false);
+    setFailed(false);
   }, [playbackId]);
 
   return (
@@ -133,8 +144,12 @@ function LightboxMuxVideo({
       <FittedFrame aspect={muxAspectRatio}>
         {isDisplay && !playing ? (
           // eslint-disable-next-line @next/next/no-img-element
-          <img src={poster} alt="" style={FIT_CONTAIN} />
+          <img src={poster} alt={alt} style={FIT_CONTAIN} />
         ) : null}
+        {failed ? (
+          // eslint-disable-next-line @next/next/no-img-element
+          <img src={poster} alt={alt} style={FIT_CONTAIN} />
+        ) : (
         <MuxPlayer
           playbackId={playbackId}
           streamType="on-demand"
@@ -148,6 +163,7 @@ function LightboxMuxVideo({
           placeholder={poster}
           thumbnailTime={1.5}
           title={alt}
+          onError={() => setFailed(true)}
           onPlaying={() => setPlaying(true)}
           style={{
             ...MUX_FIT_CONTAIN,
@@ -157,6 +173,7 @@ function LightboxMuxVideo({
               : {}),
           }}
         />
+        )}
       </FittedFrame>
     </MediaStage>
   );

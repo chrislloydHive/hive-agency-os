@@ -45,6 +45,7 @@ describe('muxThumbnailUrl', () => {
     expect(urls[0]).toContain('/animated.webp?');
     expect(urls[0]).toContain('width=640');
     expect(urls[0]).toContain('fps=8');
+    expect(urls[0]).toContain('start=1');
     expect(urls[0]).toContain('end=4');
     expect(urls[1]).toContain('/animated.gif?');
   });
@@ -55,9 +56,11 @@ describe('muxThumbnailUrl', () => {
     expect(urls).toContain(muxThumbnailUrl('pb_abc'));
   });
 
-  it('static display URLs do not include animated previews (grid paints a still first)', () => {
-    const urls = muxPortalPosterDisplayUrls('pb_abc', 'grid', '16:9');
-    expect(urls[0]).toBe(muxThumbnailUrl('pb_abc'));
+  it('static display URLs lead with a full-frame poster, not a 16:9 crop', () => {
+    const urls = muxPortalPosterDisplayUrls('pb_abc', 'grid', '9:16');
+    expect(urls[0]).toContain('fit_mode=preserve');
+    expect(urls[0]).toContain('time=1.5');
+    expect(urls.some((u) => u.includes('fit_mode=smartcrop'))).toBe(true);
     expect(urls.some((u) => u.includes('/animated.'))).toBe(false);
   });
 

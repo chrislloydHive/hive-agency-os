@@ -1056,7 +1056,7 @@ function PlacementGroupCard({
   // Check if this is a carousel placement (show card numbers)
   const isCarousel = placementType?.toLowerCase() === 'carousel';
 
-  // Multi-asset placements span full width; single-asset placements fit in grid cells
+  // Multi-asset placements span full width; single-asset placements tile in the grid.
   const isMultiAsset = assetCount > 1;
 
   // Approval state
@@ -1566,7 +1566,7 @@ function AssetCard({
     >
       <div
         className={`relative w-full overflow-hidden bg-gray-900 ${
-          isVideo ? 'aspect-video' : isAudio ? 'min-h-[140px]' : 'aspect-video'
+          isAudio ? 'min-h-[140px]' : 'aspect-video'
         }`}
       >
         {/* Status badge: right of checkbox when checkbox present, else left-2 */}
@@ -1594,13 +1594,14 @@ function AssetCard({
                 alt={asset.name}
                 muxAspectRatio={asset.muxAspectRatio}
                 animated={reviewTacticPrefersAnimatedMuxPreview(tactic)}
+                className="absolute inset-0 h-full w-full object-contain"
                 fallback={
                   <DriveFileThumbnail
                     fileId={asset.fileId}
                     token={token}
                     crasRecordId={asset.airtableRecordId}
                     alt={asset.name}
-                    className="h-full w-full object-cover"
+                    className="h-full w-full object-contain"
                   />
                 }
               />
@@ -1611,7 +1612,7 @@ function AssetCard({
                   token={token}
                   crasRecordId={asset.airtableRecordId}
                   alt={asset.name}
-                  className="h-full w-full object-cover"
+                  className="h-full w-full object-contain"
                 />
               </div>
             )}

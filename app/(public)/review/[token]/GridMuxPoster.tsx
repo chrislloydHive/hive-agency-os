@@ -15,7 +15,7 @@ import { useEffect, useMemo, useState, type ReactNode } from 'react';
 export default function GridMuxPoster({
   playbackId,
   alt,
-  className = 'absolute inset-0 h-full w-full object-cover',
+  className = 'absolute inset-0 h-full w-full object-contain',
   layout = 'grid',
   muxAspectRatio,
   animated = false,
@@ -63,7 +63,7 @@ export default function GridMuxPoster({
       <div className="absolute inset-0 overflow-hidden">
         {poster ? (
           // eslint-disable-next-line @next/next/no-img-element
-          <img src={poster} alt="" className="absolute inset-0 h-full w-full object-cover" />
+          <img src={poster} alt="" className="absolute inset-0 h-full w-full object-contain" />
         ) : null}
         {/* eslint-disable-next-line @next/next/no-img-element */}
         <img
