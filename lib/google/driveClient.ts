@@ -362,18 +362,37 @@ export async function findChildFolderWithDrive(
   parentId: string,
   name: string
 ): Promise<DriveFolder | null> {
+  const folders = await listSameNameChildFolders(drive, parentId, name);
+  if (folders.length === 0) return null;
+  const winner = folders[0];
+  return { id: winner.id!, name: winner.name!, url: folderUrl(winner.id!) };
+}
+
+/**
+ * List non-trashed folders named `name` under `parentId`, oldest first (id as tiebreak).
+ * Drive allows duplicate names, so callers must pick a deterministic winner.
+ */
+async function listSameNameChildFolders(
+  drive: drive_v3.Drive,
+  parentId: string,
+  name: string
+): Promise<drive_v3.Schema$File[]> {
   try {
-    const escapedName = name.replace(/'/g, "\\'");
+    const escapedName = name.replace(/\\/g, '\\\\').replace(/'/g, "\\'");
     const response = await drive.files.list({
       q: `'${parentId}' in parents and name = '${escapedName}' and mimeType = 'application/vnd.google-apps.folder' and trashed = false`,
-      fields: 'files(id, name)',
+      fields: 'files(id, name, createdTime)',
       supportsAllDrives: true,
       includeItemsFromAllDrives: true,
+      pageSize: 100,
     });
-    const files = response.data.files ?? [];
-    if (files.length === 0) return null;
-    const folder = files[0];
-    return { id: folder.id!, name: folder.name!, url: folderUrl(folder.id!) };
+    const files = (response.data.files ?? []).filter((f) => !!f.id);
+    return files.sort((a, b) => {
+      const ta = a.createdTime ? Date.parse(a.createdTime) : 0;
+      const tb = b.createdTime ? Date.parse(b.createdTime) : 0;
+      if (ta !== tb) return ta - tb;
+      return (a.id ?? '').localeCompare(b.id ?? '');
+    });
   } catch (error: unknown) {
     const msg = error instanceof Error ? error.message : String(error);
     console.error(`[Drive] Error finding folder "${name}" under ${parentId}:`, msg);
@@ -409,43 +428,65 @@ export async function createFolderWithDrive(
   }
 }
 
+/** In-process single-flight per parent+name (cheap guard; the post-create check covers cross-instance races). */
+const inflightEnsureFolder = new Map<string, Promise<DriveFolder>>();
+
+/** Delay before the post-create re-check so Drive's list index can see concurrent creates. */
+const ENSURE_FOLDER_SETTLE_MS = Number(process.env.DRIVE_ENSURE_FOLDER_SETTLE_MS ?? 400);
+
 /**
  * Ensure a folder exists under a parent (find or create), using the provided drive client.
- * Handles race conditions: if creation fails because another process created it, retry the lookup.
+ *
+ * Drive never rejects duplicate folder names, so find-then-create alone races: concurrent callers
+ * (e.g. parallel webhooks on different serverless instances) each create their own copy. To make
+ * this safe we create, wait briefly, re-list same-name siblings, and deterministically keep the
+ * oldest (id as tiebreak). A losing caller trashes its own just-created, empty folder and returns
+ * the winner, so every concurrent caller converges on the same folder id.
  */
 export async function ensureChildFolderWithDrive(
   drive: drive_v3.Drive,
   parentId: string,
   name: string
 ): Promise<DriveFolder> {
-  // First check if folder already exists
+  const key = `${parentId}::${name}`;
+  const inflight = inflightEnsureFolder.get(key);
+  if (inflight) return inflight;
+  const p = ensureChildFolderUncached(drive, parentId, name).finally(() => {
+    inflightEnsureFolder.delete(key);
+  });
+  inflightEnsureFolder.set(key, p);
+  return p;
+}
+
+async function ensureChildFolderUncached(
+  drive: drive_v3.Drive,
+  parentId: string,
+  name: string
+): Promise<DriveFolder> {
   const existing = await findChildFolderWithDrive(drive, parentId, name);
   if (existing) return existing;
-  
-  // Try to create - if it fails (e.g., duplicate name from concurrent creation), retry lookup
-  try {
-    return await createFolderWithDrive(drive, parentId, name);
-  } catch (createError: any) {
-    // If creation failed, check again - another process may have created it
-    // Common error codes: 409 (conflict), or errors mentioning duplicate/existing
-    const errorMessage = createError?.message || String(createError);
-    const isConflictError = createError?.code === 409 || 
-                           /duplicate|already exists|conflict/i.test(errorMessage);
-    
-    if (isConflictError) {
-      console.log(`[Drive] Folder creation conflict for "${name}" under ${parentId}, retrying lookup`);
-      // Wait a short time for folder to be fully created, then retry lookup
-      await new Promise(resolve => setTimeout(resolve, 500));
-      const retryExisting = await findChildFolderWithDrive(drive, parentId, name);
-      if (retryExisting) {
-        console.log(`[Drive] Found folder after conflict: "${name}" (${retryExisting.id})`);
-        return retryExisting;
-      }
-    }
-    
-    // If not a conflict error or retry didn't find it, rethrow the original error
-    throw createError;
+
+  const created = await createFolderWithDrive(drive, parentId, name);
+
+  if (ENSURE_FOLDER_SETTLE_MS > 0) {
+    await new Promise((resolve) => setTimeout(resolve, ENSURE_FOLDER_SETTLE_MS));
   }
+  const siblings = await listSameNameChildFolders(drive, parentId, name);
+  const winner = siblings[0];
+  if (!winner || winner.id === created.id) return created;
+
+  // Lost the race: remove our own (empty, just-created) folder and use the winner.
+  try {
+    await drive.files.update({
+      fileId: created.id,
+      requestBody: { trashed: true },
+      supportsAllDrives: true,
+    });
+    console.log(`[Drive] Race on "${name}" under ${parentId}: trashed ${created.id}, using ${winner.id}`);
+  } catch (err) {
+    console.warn(`[Drive] Could not trash duplicate folder ${created.id}:`, err instanceof Error ? err.message : err);
+  }
+  return { id: winner.id!, name: winner.name ?? name, url: folderUrl(winner.id!) };
 }
 
 /**
