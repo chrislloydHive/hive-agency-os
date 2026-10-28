@@ -24,6 +24,7 @@ import {
   copyDriveFolderTree,
 } from '@/lib/google/driveClient';
 import { runProductionFolderMirrorForProject } from '@/lib/delivery/runProductionFolderMirror';
+import { syncPartnerJobFolderForProject } from '@/lib/delivery/syncPartnerJobFolder';
 
 /**
  * Resolve destination folder ID for a CRAS record's batch reference.
@@ -449,6 +450,16 @@ export const partnerDeliveryRequested = inngest.createFunction(
               }
             }
             
+            // Structure + doc-shortcut guarantee for the Brkthru job folder (non-blocking, idempotent)
+            if (mirrorProjectId) {
+              const syncResult = await syncPartnerJobFolderForProject(mirrorProjectId, {
+                oidcToken: process.env.VERCEL_OIDC_TOKEN ?? undefined,
+              });
+              if (!syncResult.ok) {
+                console.warn(`[partner-delivery-requested] Partner job folder sync failed (non-blocking):`, syncResult.error ?? syncResult.sync?.failures);
+              }
+            }
+
             return {
               ok: true,
               result: 'delivered',
