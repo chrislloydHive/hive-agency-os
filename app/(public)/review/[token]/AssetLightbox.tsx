@@ -288,12 +288,10 @@ function LightboxVideoPreview({
       <MediaStage>
       <div className="flex h-full w-full max-w-md flex-col items-center justify-center gap-4 rounded-lg bg-gray-800/90 p-6 text-center">
         <p className="text-sm text-gray-300">
-          The in-browser preview can’t decode this file, and automatic conversion failed or is disabled.
+          This browser can’t play this file.
           <span className="text-gray-400">
             {' '}
-            Many .mp4 files use H.265 (HEVC) or other codecs that Chrome won’t play. Use <strong>Download</strong> and
-            open in QuickTime or VLC, or set <code className="text-amber-200/80">NEXT_PUBLIC_REVIEW_PORTAL_FFMPEG=0</code> to
-            skip the converter. Approval and delivery are unaffected.
+            Download it and open it in QuickTime or VLC. You can still approve it here.
           </span>
         </p>
         <a

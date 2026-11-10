@@ -20,7 +20,9 @@ async function getLoadedFfmpeg(): Promise<FFmpeg> {
 
   loadPromise = (async () => {
     try {
-      const base = `https://unpkg.com/@ffmpeg/core@${FFMPEG_CORE}/dist/umd`;
+      // Module worker does `import(coreURL)`. The UMD build has no default
+      // export, so load() throws and the lightbox shows the download fallback.
+      const base = `https://unpkg.com/@ffmpeg/core@${FFMPEG_CORE}/dist/esm`;
       const ffmpeg = new FFmpeg();
       await ffmpeg.load({
         coreURL: await toBlobURL(`${base}/ffmpeg-core.js`, 'text/javascript'),
@@ -141,7 +143,8 @@ export async function transcodeReviewVideoToPlayableH264(
   await ffmpeg.deleteFile(inName, { signal }).catch(() => {});
   await ffmpeg.deleteFile('out.mp4', { signal }).catch(() => {});
 
-  const blob = new Blob([u8 as BlobPart], { type: 'video/mp4' });
+  // Copy out of any wasm-backed buffer before handing it to Blob.
+  const blob = new Blob([u8.slice()], { type: 'video/mp4' });
   return URL.createObjectURL(blob);
 }
 
