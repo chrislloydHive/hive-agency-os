@@ -15,6 +15,8 @@ import {
   reviewAssetIsVideo,
 } from '@/lib/review/reviewMediaDisplay';
 import { muxPlaybackReadyForThumbnail, reviewTacticPrefersAnimatedMuxPreview } from '@/lib/review/muxThumbnail';
+import { parseHtml5PortalFileId } from '@/lib/review/html5PortalIds';
+import { Html5AdFrame } from './Html5AdFrame';
 import GridMuxPoster from './GridMuxPoster';
 import DriveFileThumbnail from './DriveFileThumbnail';
 import { ReviewAudioPlayer } from './ReviewAudioPlayer';
@@ -1527,6 +1529,7 @@ function AssetCard({
   const isImage = reviewAssetIsImage(asset.mimeType, asset.name);
   const isVideo = reviewAssetIsVideo(asset.mimeType, asset.name);
   const isAudio = reviewAssetIsAudio(asset.mimeType, asset.name);
+  const html5 = parseHtml5PortalFileId(asset.fileId);
   const muxPid = asset.muxPlaybackId?.trim();
   const muxPoster = muxPlaybackReadyForThumbnail(asset.muxStatus, muxPid);
   const isNew = isAssetNew(asset);
@@ -1576,7 +1579,10 @@ function AssetCard({
         >
           {badgeLabel}
         </span>
-        {isImage && (
+        {html5 && (
+          <Html5AdFrame token={token} fileId={asset.fileId} title={asset.name} />
+        )}
+        {!html5 && isImage && (
           // eslint-disable-next-line @next/next/no-img-element
           <img
             src={src}
@@ -1586,7 +1592,7 @@ function AssetCard({
             className="h-full w-full object-contain"
           />
         )}
-        {isVideo && (
+        {!html5 && isVideo && (
           <>
             {muxPoster && muxPid ? (
               <GridMuxPoster
@@ -1627,14 +1633,14 @@ function AssetCard({
             )}
           </>
         )}
-        {isAudio && (
+        {!html5 && isAudio && (
           <div className="flex w-full flex-col items-center justify-center gap-2 px-3 py-4">
             <svg className="h-10 w-10 text-amber-500/80" fill="currentColor" viewBox="0 0 24 24" aria-hidden>
               <path d="M12 3v10.55A4 4 0 1014 17V7h4V3h-6z" />
             </svg>
           </div>
         )}
-        {!isImage && !isVideo && !isAudio && (
+        {!html5 && !isImage && !isVideo && !isAudio && (
           <DriveFileThumbnail
             fileId={asset.fileId}
             token={token}

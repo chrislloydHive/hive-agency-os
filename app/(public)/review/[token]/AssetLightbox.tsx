@@ -17,6 +17,8 @@ import {
 import DriveFileThumbnail from './DriveFileThumbnail';
 import { ReviewAudioPlayer } from './ReviewAudioPlayer';
 import { reviewFileDownloadHref } from './ReviewSection';
+import { Html5AdFrame } from './Html5AdFrame';
+import { html5DownloadUrl, parseHtml5PortalFileId } from '@/lib/review/html5PortalIds';
 import type { ReviewState } from './ReviewPortalClient';
 import {
   isPortalFfmpegTranscodeEnabled,
@@ -698,6 +700,10 @@ export default function AssetLightbox({
   const isImage = reviewAssetIsImage(asset.mimeType, asset.name);
   const isVideo = reviewAssetIsVideo(asset.mimeType, asset.name);
   const isAudio = reviewAssetIsAudio(asset.mimeType, asset.name);
+  const html5 = parseHtml5PortalFileId(asset.fileId);
+  const downloadHref =
+    html5DownloadUrl(token, asset.fileId) ??
+    `${buildReviewFileProxyUrl(asset.fileId, token, { crasRecordId: asset.airtableRecordId })}&dl=1`;
 
   // Close when clicking overlay (not content)
   const handleOverlayClick = (e: React.MouseEvent) => {
@@ -791,13 +797,20 @@ export default function AssetLightbox({
             overflow: 'hidden',
           }}
         >
-          {isImage && (
+          {html5 && (
+            <MediaStage>
+              <div className="relative h-full w-full">
+                <Html5AdFrame token={token} fileId={asset.fileId} title={asset.name} interactive />
+              </div>
+            </MediaStage>
+          )}
+          {!html5 && isImage && (
             <MediaStage>
               {/* eslint-disable-next-line @next/next/no-img-element */}
               <img src={src} alt={asset.name} style={FIT_CONTAIN} />
             </MediaStage>
           )}
-          {isVideo &&
+          {!html5 && isVideo &&
             (() => {
               const ms = (asset.muxStatus ?? '').toLowerCase();
               const pid = asset.muxPlaybackId?.trim();
@@ -825,7 +838,7 @@ export default function AssetLightbox({
               }
               return <LightboxVideoPreview src={src} fileName={asset.name} />;
             })()}
-          {isAudio && (
+          {!html5 && isAudio && (
             <MediaStage>
               <div className="flex h-full w-full flex-col items-center justify-center gap-6 rounded-lg bg-gray-800 p-8">
                 <div className="flex h-24 w-24 items-center justify-center rounded-full bg-gray-700">
@@ -837,7 +850,7 @@ export default function AssetLightbox({
               </div>
             </MediaStage>
           )}
-          {!isImage && !isVideo && !isAudio && (
+          {!html5 && !isImage && !isVideo && !isAudio && (
             <MediaStage>
               <div className="flex h-full w-full flex-col items-center justify-center gap-4 rounded-lg bg-gray-800 p-4">
                 <DriveFileThumbnail
@@ -929,8 +942,8 @@ export default function AssetLightbox({
               </button>
             )}
             <a
-              href={`${buildReviewFileProxyUrl(asset.fileId, token, { crasRecordId: asset.airtableRecordId })}&dl=1`}
-              download={asset.name}
+              href={downloadHref}
+              download={html5 ? undefined : asset.name}
               className="inline-flex items-center gap-1 rounded-md bg-gray-700 px-3 py-1.5 text-xs font-medium text-gray-200 transition-colors hover:bg-gray-600 hover:text-white"
             >
               <svg className="h-3.5 w-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">

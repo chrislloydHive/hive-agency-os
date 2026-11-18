@@ -15,6 +15,8 @@ import {
   setPartnerDownloadStartedAt,
 } from '@/lib/airtable/reviewAssetStatus';
 import { isDriveFileDirectChildOfAllowedReviewFolders } from '@/lib/review/reviewFolders';
+import { loadHtml5PackageBuffer, readHtml5InnerZip } from '@/lib/review/html5DeliveryPackage';
+import { parseHtml5PortalFileId } from '@/lib/review/html5PortalIds';
 import { verifyDownloadSignature } from '@/lib/review/downloadSignature';
 import { getAndDeleteDownloadSession } from '@/lib/review/downloadSessionStore';
 import {
@@ -135,6 +137,40 @@ export async function GET(req: NextRequest) {
       { error: 'File not authorized for this review' },
       { status: 403, headers: { ...NO_STORE, ...EXTRA_HEADERS } }
     );
+  }
+
+  const html5 = parseHtml5PortalFileId(assetId);
+  if (html5) {
+    try {
+      const packageBuf = await loadHtml5PackageBuffer(drive, html5.driveFileId);
+      const zip = readHtml5InnerZip(packageBuf, html5.entry);
+      if (!zip) {
+        return NextResponse.json(
+          { error: 'Size not in package' },
+          { status: 404, headers: { ...NO_STORE, ...EXTRA_HEADERS } },
+        );
+      }
+      if (recordId) {
+        await setPartnerDownloadStartedAt(recordId);
+        await setPartnerDownloadedAt(recordId);
+      }
+      return new NextResponse(new Uint8Array(zip), {
+        status: 200,
+        headers: {
+          ...NO_STORE,
+          ...EXTRA_HEADERS,
+          'Content-Type': 'application/zip',
+          'Content-Disposition': `attachment; filename="${safeFilename(html5.entry)}"`,
+        },
+      });
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      console.error('[review/assets/download] HTML5 package error:', msg);
+      return NextResponse.json(
+        { error: 'Failed to fetch file' },
+        { status: 502, headers: { ...NO_STORE, ...EXTRA_HEADERS } },
+      );
+    }
   }
 
   let mimeType: string;

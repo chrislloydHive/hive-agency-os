@@ -44,6 +44,8 @@ import { resolveInlineContentType, reviewAssetIsDocumentFile } from '@/lib/revie
 import { driveErrorsSuggestServiceAccountFallback, flattenGoogleDriveError, isDriveNotFoundError } from '@/lib/review/googleDriveErrors';
 import { getDriveClientWithServiceAccount } from '@/lib/google/driveClient';
 import { requestReviewMuxBackfill } from '@/lib/review/requestMuxBackfill';
+import { expandHtml5DeliveryFiles } from '@/lib/review/html5DeliveryPackage';
+import { parseHtml5PortalFileId } from '@/lib/review/html5PortalIds';
 
 export const dynamic = 'force-dynamic';
 
@@ -403,11 +405,17 @@ export async function GET(req: NextRequest) {
     }
 
     let listedFiles: PortalListedFile[] = [];
+    let expandedHtml5PackageIds = new Set<string>();
     if (allowedFolderIds.size > 0) {
       try {
         const children = await listPortalFolderChildren(drive, allowedFolderIds);
         listedFiles = children.map((child) => portalListedFileFromChild(child));
-        console.log(`[review/assets] Listed ${listedFiles.length} files in ${allowedFolderIds.size} review folders`);
+        const expanded = await expandHtml5DeliveryFiles(drive, listedFiles);
+        listedFiles = expanded.files;
+        expandedHtml5PackageIds = expanded.expandedPackageIds;
+        console.log(`[review/assets] Listed ${listedFiles.length} files in ${allowedFolderIds.size} review folders`, {
+          html5PackagesExpanded: expanded.expandedPackageIds.size,
+        });
       } catch (err) {
         console.warn('[review/assets] review folder listing failed (non-fatal):', err instanceof Error ? err.message : err);
       }
@@ -476,7 +484,9 @@ export async function GET(req: NextRequest) {
     // Fetch Drive metadata (mimeType, modifiedTime, parents, trashed) for visible assets
     let driveMetaMap = new Map<string, DriveFileMeta>();
     let driveNotFoundIds = new Set<string>();
-    const fileIdsForMeta = visibleCrasRecords.map(r => r.driveFileId);
+    const fileIdsForMeta = visibleCrasRecords
+      .map(r => r.driveFileId)
+      .filter((id) => !parseHtml5PortalFileId(id));
     if (fileIdsForMeta.length > 0) {
       try {
         const driveLookup = await batchGetDriveFileMeta(drive, fileIdsForMeta);
@@ -512,6 +522,15 @@ export async function GET(req: NextRequest) {
 
       const validTactic = TACTICS.includes(tactic as typeof TACTICS[number]);
       const validVariant = VARIANTS.includes(variant as typeof VARIANTS[number]);
+
+      if (expandedHtml5PackageIds.has(rec.driveFileId)) {
+        skippedFiles.push({
+          fileId: rec.driveFileId,
+          filename: rec.filename,
+          reason: 'HTML5 delivery package expanded into size creatives',
+        });
+        continue;
+      }
 
       if (!validTactic || !validVariant) {
         skippedTacticVariantCount++;

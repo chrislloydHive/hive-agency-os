@@ -13,6 +13,7 @@ import { AIRTABLE_TABLES } from '@/lib/airtable/tables';
 import { batchEnsureCrasRecords, listAssetStatuses } from '@/lib/airtable/reviewAssetStatus';
 import { enrichReviewSectionsFromCras } from '@/lib/review/enrichReviewSectionsFromCras';
 import { requestReviewMuxBackfill } from '@/lib/review/requestMuxBackfill';
+import { expandHtml5DeliveryFiles } from '@/lib/review/html5DeliveryPackage';
 import {
   getReviewFolderMapFromJobFolderPartial,
   getReviewFolderMapFromClientProjectsFolder,
@@ -226,7 +227,8 @@ export default async function ReviewPage({
         continue;
       }
 
-      const assets = await listAllFiles(drive, folderInfo.folderId);
+      const listed = await listAllFiles(drive, folderInfo.folderId);
+      const assets = (await expandHtml5DeliveryFiles(drive, listed)).files;
       sections.push({
         variant,
         tactic,
