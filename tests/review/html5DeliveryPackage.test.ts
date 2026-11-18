@@ -5,6 +5,7 @@ import {
   html5DownloadUrl,
   html5PortalFileId,
   html5PreviewUrl,
+  html5SizeFromEntry,
   isHtml5DeliveryPackageName,
   parseHtml5PortalFileId,
 } from '@/lib/review/html5PortalIds';
@@ -59,5 +60,10 @@ describe('html5 delivery packages', () => {
       '/api/review/html5/abc/drive123/gifts_300x250_google_ad_manager.zip?dl=1',
     );
     expect(parseHtml5PortalFileId('drive123')).toBeNull();
+    expect(html5SizeFromEntry('gifts_300x250_google_ad_manager.zip')).toEqual({ width: 300, height: 250 });
+    expect(html5SizeFromEntry('tis_the_season160x600_google_ad_manager.zip')).toEqual({
+      width: 160,
+      height: 600,
+    });
   });
 });

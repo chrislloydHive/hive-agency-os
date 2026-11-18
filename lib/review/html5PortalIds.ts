@@ -40,7 +40,9 @@ export function isSafeZipEntry(entry: string): boolean {
 }
 
 export function html5SizeFromEntry(entry: string): { width: number; height: number } | null {
-  const match = entry.match(/_(\d+)x(\d+)_/i);
+  // gifts_300x250_… and tis_the_season160x600_… (no underscore before the size).
+  const matches = [...entry.matchAll(/(\d+)x(\d+)/gi)];
+  const match = matches.at(-1);
   if (!match) return null;
   const width = Number(match[1]);
   const height = Number(match[2]);
