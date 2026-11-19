@@ -41,21 +41,31 @@ export function Html5AdFrame({
   if (!src || !size) return null;
 
   return (
-    <div ref={boxRef} className="absolute inset-0 flex items-center justify-center overflow-hidden bg-white">
-      <iframe
-        src={src}
-        title={title}
-        scrolling="no"
-        tabIndex={interactive ? undefined : -1}
+    <div ref={boxRef} className="absolute inset-0 overflow-hidden bg-white">
+      <div
         style={{
           width: size.width,
           height: size.height,
-          zoom: scale,
-          border: 0,
-          flex: '0 0 auto',
-          pointerEvents: interactive ? 'auto' : 'none',
+          position: 'absolute',
+          left: '50%',
+          top: '50%',
+          transform: `translate(-50%, -50%) scale(${scale})`,
         }}
-      />
+      >
+        <iframe
+          src={src}
+          title={title}
+          scrolling="no"
+          tabIndex={interactive ? undefined : -1}
+          style={{
+            width: '100%',
+            height: '100%',
+            border: 0,
+            display: 'block',
+            pointerEvents: interactive ? 'auto' : 'none',
+          }}
+        />
+      </div>
     </div>
   );
 }
