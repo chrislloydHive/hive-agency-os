@@ -128,6 +128,22 @@ export function injectHtmlBase(html: string, baseHref: string): string {
   return `<!DOCTYPE html><html><head>${tag}</head><body>${html}</body></html>`;
 }
 
+/** First-party copy of the GSAP build these ads load from 2mdn. Edge tracking protection blocks that host, and the ad stays display:none until GSAP runs. */
+export const PORTAL_GSAP_PATH = '/review/gsap-3.11.5.min.js';
+
+const GSAP_2MDN_SRC = /(?:https?:)?\/\/s0\.2mdn\.net\/ads\/studio\/cached_libs\/gsap_3\.11\.5_min\.js/gi;
+
+function revealFoldwrapContainer(html: string): string {
+  return html.replace(/<div\b[^>]*\bid=["']foldwrap_container["'][^>]*>/i, (tag) =>
+    tag.replace(/display:\s*none/i, 'display:block'),
+  );
+}
+
+/** Base tag, first-party GSAP, and a visible container if the animation script never runs. */
+export function preparePortalHtml(html: string, baseHref: string): string {
+  return revealFoldwrapContainer(injectHtmlBase(html, baseHref).replace(GSAP_2MDN_SRC, PORTAL_GSAP_PATH));
+}
+
 async function downloadDriveBuffer(drive: drive_v3.Drive, fileId: string): Promise<Buffer> {
   const res = await drive.files.get(
     { fileId, alt: 'media', supportsAllDrives: true },

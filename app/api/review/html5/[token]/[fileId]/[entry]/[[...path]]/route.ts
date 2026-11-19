@@ -8,7 +8,7 @@ import { google } from 'googleapis';
 import { getCrasRecordIdByTokenAndFileId } from '@/lib/airtable/reviewAssetStatus';
 import {
   contentTypeForHtml5Path,
-  injectHtmlBase,
+  preparePortalHtml,
   loadHtml5PackageBuffer,
   readHtml5CreativeFile,
   readHtml5InnerZip,
@@ -106,7 +106,7 @@ export async function GET(
   let body: Buffer = file;
   if (contentType.startsWith('text/html')) {
     const base = `/api/review/html5/${encodeURIComponent(token)}/${encodeURIComponent(driveFileId)}/${encodeURIComponent(entry)}/`;
-    body = Buffer.from(injectHtmlBase(file.toString('utf8'), base), 'utf8');
+    body = Buffer.from(preparePortalHtml(file.toString('utf8'), base), 'utf8');
   }
 
   return new NextResponse(new Uint8Array(body), {

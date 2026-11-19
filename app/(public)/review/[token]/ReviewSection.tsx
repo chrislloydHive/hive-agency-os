@@ -1579,9 +1579,6 @@ function AssetCard({
         >
           {badgeLabel}
         </span>
-        {html5 && (
-          <Html5AdFrame token={token} fileId={asset.fileId} title={asset.name} />
-        )}
         {!html5 && isImage && (
           // eslint-disable-next-line @next/next/no-img-element
           <img
@@ -1667,6 +1664,11 @@ function AssetCard({
         <AssetDetailsLine asset={asset} />
       </div>
     </button>
+    {html5 && (
+      <div className="pointer-events-none absolute inset-x-0 top-0 z-[1] aspect-video overflow-hidden">
+        <Html5AdFrame token={token} fileId={asset.fileId} title={asset.name} />
+      </div>
+    )}
     {isAudio && (
       <div className="border-t border-gray-700 px-3 py-3">
         <ReviewAudioPlayer src={src} fileName={asset.name} className="w-full max-w-full" />

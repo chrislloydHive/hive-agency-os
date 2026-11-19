@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { listHtml5PackageSizes, readHtml5CreativeFile, readHtml5InnerZip } from '@/lib/review/html5DeliveryPackage';
+import { listHtml5PackageSizes, preparePortalHtml, readHtml5CreativeFile, readHtml5InnerZip } from '@/lib/review/html5DeliveryPackage';
 import {
   html5DownloadUrl,
   html5PortalFileId,
@@ -65,5 +65,17 @@ describe('html5 delivery packages', () => {
       width: 160,
       height: 600,
     });
+  });
+
+  it('serves GSAP from our site and shows the ad if that script is blocked', () => {
+    const html = preparePortalHtml(
+      '<html><head></head><body><script src="https://s0.2mdn.net/ads/studio/cached_libs/gsap_3.11.5_min.js"></script><div id="foldwrap_container" style="display: none"></div></body></html>',
+      '/api/review/html5/tok/file/size.zip/',
+    );
+    expect(html).toContain('<base href="/api/review/html5/tok/file/size.zip/">');
+    expect(html).toContain('src="/review/gsap-3.11.5.min.js"');
+    expect(html).not.toContain('2mdn.net');
+    expect(html).toContain('display:block');
+    expect(html).not.toContain('display: none');
   });
 });

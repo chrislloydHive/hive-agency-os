@@ -41,19 +41,18 @@ export function Html5AdFrame({
   if (!src || !size) return null;
 
   return (
-    <div ref={boxRef} className="absolute inset-0 overflow-hidden bg-white">
+    <div ref={boxRef} className="absolute inset-0 flex items-center justify-center overflow-hidden bg-white">
       <iframe
         src={src}
         title={title}
         scrolling="no"
+        tabIndex={interactive ? undefined : -1}
         style={{
           width: size.width,
           height: size.height,
+          zoom: scale,
           border: 0,
-          position: 'absolute',
-          left: '50%',
-          top: '50%',
-          transform: `translate(-50%, -50%) scale(${scale})`,
+          flex: '0 0 auto',
           pointerEvents: interactive ? 'auto' : 'none',
         }}
       />
