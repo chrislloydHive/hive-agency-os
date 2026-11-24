@@ -47,10 +47,14 @@ export type DeliveryWritePayloadSuccess = {
   deliveredCheckbox: true;
   deliveredFolderId: string;
   deliveredFolderUrl: string;
+  /** Copied file link. Written to Delivered File URL when that field exists. */
+  deliveredFileUrl?: string;
   deliverySummary: string | object; // Accept string or object (will be JSON stringified)
   deliveryError?: string;
   /** Optional: set to false to clear webhook trigger. */
   readyToDeliverWebhook?: false;
+  /** Optional: clear the needs-delivery flag after a successful copy. */
+  needsDelivery?: false;
   /** Optional: for CRAS when present. */
   deliveryFilesCount?: number;
   deliveryFoldersCount?: number;
@@ -247,6 +251,15 @@ function buildDeliveryUpdate(
       fieldsToWrite[urlAlias] = payload.deliveredFolderUrl;
       written.push(urlAlias);
     }
+    if (payload.deliveredFileUrl) {
+      const fileUrlAlias = resolveAlias(['Delivered File URL'], writableNames);
+      if (fileUrlAlias && fileUrlAlias !== urlAlias) {
+        fieldsToWrite[fileUrlAlias] = payload.deliveredFileUrl;
+        written.push(fileUrlAlias);
+      } else if (!fileUrlAlias) {
+        skipped.push({ field: 'Delivered File URL', reason: 'no writable alias found' });
+      }
+    }
 
     // Delivery Summary is optional - only include if field exists in schema
     // Ensure summary is JSON stringified for "Deliver Summary (text/json)" field
@@ -267,6 +280,13 @@ function buildDeliveryUpdate(
       if (webhookAlias) {
         fieldsToWrite[webhookAlias] = false;
         written.push(webhookAlias);
+      }
+    }
+    if (payload.needsDelivery === false) {
+      const needsAlias = resolveAlias(['Needs Delivery'], writableNames);
+      if (needsAlias) {
+        fieldsToWrite[needsAlias] = false;
+        written.push(needsAlias);
       }
     }
     // Skip optional delivery count fields - they don't exist in CRAS table
@@ -332,6 +352,9 @@ function buildDeliveryUpdateFallback(
     // Don't include it in fallback payload to avoid INVALID_VALUE_FOR_COLUMN errors
     fieldsToWrite['Delivered Folder ID'] = payload.deliveredFolderId;
     fieldsToWrite['Delivered Folder URL'] = payload.deliveredFolderUrl;
+    if (payload.deliveredFileUrl) {
+      fieldsToWrite['Delivered File URL'] = payload.deliveredFileUrl;
+    }
     // CRAS uses "Deliver Summary (text/json)" - ensure it's JSON stringified (pretty-printed)
     if (payload.deliverySummary) {
       const summaryText = typeof payload.deliverySummary === 'string' 
@@ -341,6 +364,9 @@ function buildDeliveryUpdateFallback(
     }
     if (payload.readyToDeliverWebhook === false) {
       fieldsToWrite['Ready to Deliver (Webhook)'] = false;
+    }
+    if (payload.needsDelivery === false) {
+      fieldsToWrite['Needs Delivery'] = false;
     }
     // Skip optional delivery count fields - they don't exist in CRAS table
     // Only write the 3 canonical fields: "Delivered At", "Deliver Summary (text/json)"
@@ -593,7 +619,7 @@ export async function writeDeliveryToRecord(
               retryPath: 'all-retries-failed',
             });
             // Return ok: true to not block delivery - critical fields may have been written
-            return { ok: true, written: [], skipped: [...skipped, { field: deliveredAtAlias || 'Delivered At', reason: `INVALID_VALUE_FOR_COLUMN (all retries failed: ${finalMessage})` }] };
+            return { ok: false, written: [], skipped: [...skipped, { field: deliveredAtAlias || 'Delivered At', reason: `INVALID_VALUE_FOR_COLUMN (all retries failed: ${finalMessage})` }], error: finalMessage };
           }
         } else {
           // Date-only format worked, but some other field failed
@@ -604,7 +630,7 @@ export async function writeDeliveryToRecord(
             retryPath: 'date-only-accepted-but-other-field-failed',
           });
           // Return ok: true to not block delivery - Drive copy succeeded
-          return { ok: true, written: [], skipped, error: `Date-only retry failed: ${dateOnlyMessage}` };
+          return { ok: false, written: [], skipped, error: `Date-only retry failed: ${dateOnlyMessage}` };
         }
       }
     }
@@ -653,9 +679,7 @@ export async function writeDeliveryToRecord(
       tableName,
       retryPath: 'none',
     });
-    // IMPORTANT: Return ok: true to not block delivery - Drive copy succeeded
-    // Log error but don't fail the entire delivery operation
-    return { ok: true, written: [], skipped, error: message };
+    return { ok: false, written: [], skipped, error: message };
   }
 }
 

@@ -7,6 +7,7 @@ import { runPartnerDelivery } from '@/lib/delivery/partnerDelivery';
 import {
   getAssetStatusRecordById,
   isAlreadyDelivered,
+  updateAssetStatusDeliveryError,
 } from '@/lib/airtable/reviewAssetDelivery';
 import { getProjectsBase } from '@/lib/airtable';
 import { CREATIVE_REVIEW_ASSET_STATUS_TABLE } from '@/lib/airtable/deliveryWriteBack';
@@ -173,6 +174,15 @@ async function resolveDestinationFolderId(
   };
 }
 
+async function writeDeliveryFailure(crasRecordId: string, error: string): Promise<void> {
+  try {
+    await updateAssetStatusDeliveryError(crasRecordId, error);
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    console.error(`[partner-delivery-requested] Failed to write Delivery Error for ${crasRecordId}: ${message}`);
+  }
+}
+
 async function readProjectIdFromCras(crasRecordId: string): Promise<string | null> {
   try {
     const base = getProjectsBase();
@@ -227,12 +237,9 @@ export const partnerDeliveryRequested = inngest.createFunction(
         // Load CRAS record
         const record = await getAssetStatusRecordById(crasRecordId);
         if (!record) {
-          console.error(`[partner-delivery-requested] Record not found: ${crasRecordId}`);
-          return {
-            ok: false,
-            error: `CRAS record not found: ${crasRecordId}`,
-            crasRecordId,
-          };
+          const error = `CRAS record not found: ${crasRecordId}`;
+          console.error(`[partner-delivery-requested] ${error}`);
+          throw new Error(error);
         }
 
         // Idempotency check: skip if already delivered
@@ -302,12 +309,10 @@ export const partnerDeliveryRequested = inngest.createFunction(
           }
         }
         if (!deliveryBatchIdRaw) {
-          console.error(`[partner-delivery-requested] No delivery batch ID for record ${crasRecordId}`);
-          return {
-            ok: false,
-            error: `No delivery batch ID found for record ${crasRecordId}`,
-            crasRecordId,
-          };
+          const error = `No delivery batch ID found for record ${crasRecordId}`;
+          console.error(`[partner-delivery-requested] ${error}`);
+          await writeDeliveryFailure(crasRecordId, error);
+          throw new Error(error);
         }
 
         // Resolve destination folder
@@ -318,15 +323,12 @@ export const partnerDeliveryRequested = inngest.createFunction(
           hasStableBatchRecordId ? null : projectIdFromCras // Only pass projectId if no stable batchRecordId
         );
         if (!destinationResult.destinationFolderId) {
-          console.error(`[partner-delivery-requested] Could not resolve destination for batch: ${deliveryBatchIdRaw}`, {
+          const error = `Could not resolve destination for batch: ${deliveryBatchIdRaw}${destinationResult.batchRecordId ? ` (record ID: ${destinationResult.batchRecordId})` : ''}${destinationResult.error ? `. ${destinationResult.error}` : ''}`;
+          console.error(`[partner-delivery-requested] ${error}`, {
             batchRecordId: destinationResult.batchRecordId,
-            error: destinationResult.error,
           });
-          return {
-            ok: false,
-            error: `Could not resolve destination for batch: ${deliveryBatchIdRaw}${destinationResult.batchRecordId ? ` (record ID: ${destinationResult.batchRecordId})` : ''}${destinationResult.error ? `. ${destinationResult.error}` : ''}`,
-            crasRecordId,
-          };
+          await writeDeliveryFailure(crasRecordId, error);
+          throw new Error(error);
         }
         const destinationFolderId = destinationResult.destinationFolderId;
         const batchRecordId = destinationResult.batchRecordId;
@@ -349,12 +351,10 @@ export const partnerDeliveryRequested = inngest.createFunction(
         // Get source folder ID from record (driveFileId is the Source Folder ID field)
         const sourceFolderId = record.driveFileId;
         if (!sourceFolderId) {
-          console.error(`[partner-delivery-requested] No source folder ID for record ${crasRecordId}`);
-          return {
-            ok: false,
-            error: `No source folder ID found for record ${crasRecordId}`,
-            crasRecordId,
-          };
+          const error = `No Source Folder ID found for record ${crasRecordId}. Production Folder ID is not used.`;
+          console.error(`[partner-delivery-requested] ${error}`);
+          await writeDeliveryFailure(crasRecordId, error);
+          throw new Error(error);
         }
 
         console.log(`[partner-delivery-requested] Resolved: sourceFolderId=${sourceFolderId}, destinationFolderId=${destinationFolderId}`);
@@ -389,7 +389,8 @@ export const partnerDeliveryRequested = inngest.createFunction(
             deliveryBatchId: deliveryBatchIdRaw,
             destinationFolderId,
             dryRun: false,
-            projectName: projectName ?? undefined,
+            // Destination is the partner production folder. Tactic/variant
+            // (PMAX/Prospecting, …) are created directly under it.
             oidcToken: process.env.VERCEL_OIDC_TOKEN ?? undefined,
           },
           requestId || `event-${crasRecordId.slice(-8)}`
@@ -459,12 +460,7 @@ export const partnerDeliveryRequested = inngest.createFunction(
           }
         } else {
           console.error(`[partner-delivery-requested] Record ${crasRecordId} delivery failed: ${deliveryResult.error}`);
-          return {
-            ok: false,
-            error: deliveryResult.error,
-            crasRecordId,
-            authMode: deliveryResult.authMode,
-          };
+          throw new Error(deliveryResult.error);
         }
       } catch (err) {
         const message = err instanceof Error ? err.message : String(err);

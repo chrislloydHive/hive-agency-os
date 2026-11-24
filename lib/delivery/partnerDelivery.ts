@@ -35,7 +35,7 @@ import {
   getAssetStatusRecordById,
   isAlreadyDelivered,
   updateAssetStatusDeliverySuccess,
-  updateAssetStatusDeliveryErrorFireAndForget,
+  updateAssetStatusDeliveryError,
   withTimeout,
 } from '@/lib/airtable/reviewAssetDelivery';
 import { resolveReviewProject } from '@/lib/review/resolveProject';
@@ -148,23 +148,32 @@ export async function runPartnerDelivery(
     destinationFolderId = fromBatch ?? '';
   }
 
-  const fail = (
+  const fail = async (
     error: string,
     statusCode: 400 | 404 | 500,
     updateAirtable: boolean,
     authMode?: AuthMode
-  ): PartnerDeliveryResult => {
+  ): Promise<PartnerDeliveryResult> => {
     if (!dryRun && updateAirtable) {
-      withTimeout(
-        (signal) => updateAssetStatusDeliveryErrorFireAndForget(airtableRecordId, error, signal),
-        AIRTABLE_UPDATE_TIMEOUT_MS
-      ).catch((e) => {
+      try {
+        await withTimeout(
+          () => updateAssetStatusDeliveryError(airtableRecordId, error),
+          AIRTABLE_UPDATE_TIMEOUT_MS
+        );
+        console.error(`[delivery/partner] ${requestId} Wrote Delivery Error and set Delivery Status=Error`, {
+          airtableRecordId,
+          error,
+        });
+      } catch (e) {
         if (isAbortError(e)) {
-          console.warn(`[delivery/partner] ${requestId} Airtable update skipped (request aborted)`);
-          return;
+          console.warn(`[delivery/partner] ${requestId} Airtable error write timed out`);
+        } else {
+          console.error(
+            `[delivery/partner] ${requestId} Failed to write Delivery Error to Airtable:`,
+            e instanceof Error ? e.message : String(e)
+          );
         }
-        console.error(`[delivery/partner] ${requestId} Failed to update Airtable error:`, e);
-      });
+      }
     }
     logStructured({
       requestId,
@@ -180,11 +189,11 @@ export async function runPartnerDelivery(
   };
 
   if (!sourceFolderId) {
-    return fail('Missing source folder ID', 400, true);
+    return await fail('Missing source folder ID', 400, true);
   }
 
   if (!destinationFolderId) {
-    return fail(
+    return await fail(
       'Missing destination folder: set destinationFolderId in the webhook payload or configure Destination Folder ID for the batch in Partner Delivery Batches',
       400,
       true
@@ -201,7 +210,7 @@ export async function runPartnerDelivery(
   if (tokenTrimmed) {
     const resolved = await resolveReviewProject(tokenTrimmed);
     if (!resolved?.auth) {
-      return fail('Invalid review portal token (could not resolve project/oauth).', 400, true);
+      return await fail('Invalid review portal token (could not resolve project/oauth).', 400, true);
     }
     oauthClient = resolved.auth;
     authMode = 'oauth';
@@ -226,7 +235,6 @@ export async function runPartnerDelivery(
 
   try {
     const vercelOidcTokenToUse = oidcToken ?? process.env.VERCEL_OIDC_TOKEN ?? null;
-    // Use getDriveClient from driveClient.ts (requires options parameter)
     drive = await getDriveClient({
       oauthToken: oauthClient ?? null,
       vercelOidcToken: vercelOidcTokenToUse,
@@ -235,7 +243,7 @@ export async function runPartnerDelivery(
   } catch (authError) {
     const authMsg = authError instanceof Error ? authError.message : String(authError);
     console.error(`[delivery/partner] ${requestId} ❌ Drive client initialization failed:`, authMsg);
-    return fail(`Drive client initialization failed: ${authMsg}`, 500, true, authMode);
+    return await fail(`Drive client initialization failed: ${authMsg}`, 500, true, authMode);
   }
 
   console.log(
@@ -253,20 +261,11 @@ export async function runPartnerDelivery(
     record = await getAssetStatusRecordById(airtableRecordId);
   } catch (e) {
     console.error(`[delivery/partner] ${requestId} getAssetStatusRecordById failed:`, e);
-    logStructured({
-      requestId,
-      airtableRecordId,
-      sourceFolderId,
-      destinationFolderId,
-      dryRun: false,
-      result: 'error',
-      error: e instanceof Error ? e.message : 'Failed to load record',
-    });
-    return { ok: false, error: e instanceof Error ? e.message : 'Failed to load record', statusCode: 500, result: 'error' };
+    return await fail(e instanceof Error ? e.message : 'Failed to load record', 500, true);
   }
 
   if (!record) {
-    return fail(`Airtable record not found: ${airtableRecordId}`, 404, false);
+    return await fail(`Airtable record not found: ${airtableRecordId}`, 404, false);
   }
 
   if (isAlreadyDelivered(record)) {
@@ -391,7 +390,7 @@ export async function runPartnerDelivery(
       sourceId: sourceFolderId,
       stack: e instanceof Error ? e.stack : undefined,
     });
-    return fail(`Failed to resolve source hierarchy: ${message}`, 400, true, authMode);
+    return await fail(`Failed to resolve source hierarchy: ${message}`, 400, true, authMode);
   }
 
   // Resolve destination subfolder path: {Destination Root}/{Project Name}/{Tactic}/{Variant}
@@ -528,7 +527,7 @@ export async function runPartnerDelivery(
       errorMessage: sourceError?.message,
       errorCode: sourceError?.code,
     });
-    return fail(
+    return await fail(
       `SOURCE access failed: status=${statusCode}, fileId=${resolvedSourceFolderId}. Check service account membership in Shared Drive.`,
       400,
       true,
@@ -565,7 +564,7 @@ export async function runPartnerDelivery(
       errorMessage: destError?.message,
       errorCode: destError?.code,
     });
-    return fail(
+    return await fail(
       `DEST access failed: status=${statusCode}, fileId=${effectiveDestinationFolderId}. Check service account membership in Shared Drive.`,
       400,
       true,
@@ -579,7 +578,7 @@ export async function runPartnerDelivery(
       await preflightFolderCopy(drive, resolvedSourceFolderId, effectiveDestinationFolderId);
     } catch (e) {
       const message = e instanceof Error ? e.message : String(e);
-      return fail(message, 400, true, authMode);
+      return await fail(message, 400, true, authMode);
     }
   }
 
@@ -864,11 +863,14 @@ export async function runPartnerDelivery(
         foldersCreated,
       });
       
+      const deliveredFolderUrl = folderUrl(effectiveDestinationFolderId);
       await updateAssetStatusDeliverySuccess(airtableRecordId, {
         deliveredFolderId: effectiveDestinationFolderId,
-        deliveredFolderUrl: fileResult.url,
+        deliveredFolderUrl,
+        deliveredFileUrl: fileResult.url,
         filesCopied,
         foldersCreated,
+        failures: failures.length > 0 ? failures : undefined,
       });
       logStructured({
         requestId,
@@ -922,7 +924,7 @@ export async function runPartnerDelivery(
     } else {
       message = `${raw} (status=${statusCode})`;
     }
-    return fail(message, 500, true, authMode);
+    return await fail(message, 500, true, authMode);
   }
 }
 

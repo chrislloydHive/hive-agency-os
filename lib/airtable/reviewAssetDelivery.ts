@@ -100,6 +100,8 @@ export function isAlreadyDelivered(record: AssetDeliveryRecord): boolean {
 export interface DeliverySuccessFolderPayload {
   deliveredFolderId: string;
   deliveredFolderUrl: string;
+  /** Web link of the copied file. Written to Delivered File URL, separate from the folder URL. */
+  deliveredFileUrl?: string;
   filesCopied: number;
   foldersCreated: number;
   failures?: Array<{ id: string; name?: string; reason: string }>;
@@ -117,6 +119,7 @@ export async function updateAssetStatusDeliverySuccess(
   const now = new Date().toISOString();
   let deliveredFolderUrl: string;
   let deliveredFolderId: string;
+  let deliveredFileUrl: string | undefined;
   let deliverySummary: string;
   let deliveryFilesCount: number | undefined;
   let deliveryFoldersCount: number | undefined;
@@ -130,6 +133,7 @@ export async function updateAssetStatusDeliverySuccess(
     const p = deliveredFileUrlOrFolderPayload;
     deliveredFolderUrl = p.deliveredFolderUrl;
     deliveredFolderId = p.deliveredFolderId;
+    deliveredFileUrl = p.deliveredFileUrl;
     deliverySummary = JSON.stringify({
       deliveredFolderId: p.deliveredFolderId,
       deliveredFolderUrl: p.deliveredFolderUrl,
@@ -151,9 +155,11 @@ export async function updateAssetStatusDeliverySuccess(
     deliveredCheckbox: true,
     deliveredFolderId,
     deliveredFolderUrl,
+    ...(deliveredFileUrl ? { deliveredFileUrl } : {}),
     deliverySummary,
     deliveryError: '',
     readyToDeliverWebhook: false,
+    needsDelivery: false,
     ...(deliveryFilesCount !== undefined && { deliveryFilesCount }),
     ...(deliveryFoldersCount !== undefined && { deliveryFoldersCount }),
     ...(deliveryFailures !== undefined && { deliveryFailures }),

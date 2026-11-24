@@ -7,7 +7,9 @@
 import { inngest } from '@/lib/inngest/client';
 import { getProjectsBase } from '@/lib/airtable';
 import { CREATIVE_REVIEW_ASSET_STATUS_TABLE } from '@/lib/airtable/deliveryWriteBack';
+import { updateAssetStatusDeliveryError } from '@/lib/airtable/reviewAssetDelivery';
 import { DELIVERY_BATCH_ID_FIELD } from '@/lib/airtable/reviewAssetStatus';
+import { deliverApprovedCras } from '@/lib/delivery/deliverApprovedCras';
 import {
   getBatchDetails,
   getDeliveryContextByProjectId,
@@ -62,14 +64,27 @@ export interface TriggerPartnerDeliveryForCrasInput {
   batchId?: string;
   deliveryBatchRecordId?: string;
   triggeredBy?: string;
+  /**
+   * Copy the asset in this request and return the Drive result.
+   * POST /api/delivery/partner/approved sets this. Review-portal callers
+   * leave it unset and only enqueue the Inngest event.
+   */
+  execute?: boolean;
 }
 
 export type TriggerPartnerDeliveryForCrasResult =
-  | { ok: true; requestId: string }
+  | {
+      ok: true;
+      requestId: string;
+      result?: 'queued' | 'delivered' | 'idempotent';
+      deliveredFileUrl?: string;
+      deliveredFolderUrl?: string;
+      deliveredFolderId?: string;
+    }
   | {
       ok: false;
       error: string;
-      statusCode: 400 | 422 | 500;
+      statusCode: 400 | 404 | 422 | 500;
       crasFields?: unknown;
     };
 
@@ -260,6 +275,12 @@ export async function triggerPartnerDeliveryForCras(
         : 'CRAS record not fetched';
       const errorMsg = `No Partner Delivery Batch resolved for CRAS ${crasRecordId}`;
       console.error(`[triggerPartnerDeliveryForCras] ${errorMsg}`, { debugFields });
+      try {
+        await updateAssetStatusDeliveryError(crasRecordId, errorMsg);
+      } catch (writeErr) {
+        const writeMessage = writeErr instanceof Error ? writeErr.message : String(writeErr);
+        console.error(`[triggerPartnerDeliveryForCras] Failed to write Delivery Error: ${writeMessage}`);
+      }
       return {
         ok: false,
         error: `Failed to trigger delivery: ${errorMsg}`,
@@ -269,6 +290,30 @@ export async function triggerPartnerDeliveryForCras(
     }
 
     const finalRequestId = requestId || `approved-${Date.now().toString(36)}-${crasRecordId.slice(-8)}`;
+
+    if (body.execute) {
+      const executed = await deliverApprovedCras({
+        crasRecordId,
+        batchRecordId,
+        requestId: finalRequestId,
+      });
+      if (!executed.ok) {
+        return {
+          ok: false,
+          error: executed.error,
+          statusCode: executed.statusCode,
+        };
+      }
+      return {
+        ok: true,
+        requestId: executed.requestId,
+        result: executed.result,
+        deliveredFileUrl: executed.deliveredFileUrl,
+        deliveredFolderUrl: executed.deliveredFolderUrl,
+        deliveredFolderId: executed.deliveredFolderId,
+      };
+    }
+
     const eventPayload = {
       name: 'partner.delivery.requested' as const,
       data: {
@@ -293,10 +338,18 @@ export async function triggerPartnerDeliveryForCras(
       `[triggerPartnerDeliveryForCras] Event sent for CRAS record ${crasRecordId}, requestId=${finalRequestId}`,
     );
 
-    return { ok: true, requestId: finalRequestId };
+    return { ok: true, requestId: finalRequestId, result: 'queued' };
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
-    console.error(`[triggerPartnerDeliveryForCras] Failed to send event for ${crasRecordId}:`, message);
+    console.error(`[triggerPartnerDeliveryForCras] Failed for ${crasRecordId}:`, message);
+    if (crasRecordId) {
+      try {
+        await updateAssetStatusDeliveryError(crasRecordId, message);
+      } catch (writeErr) {
+        const writeMessage = writeErr instanceof Error ? writeErr.message : String(writeErr);
+        console.error(`[triggerPartnerDeliveryForCras] Failed to write Delivery Error: ${writeMessage}`);
+      }
+    }
     return {
       ok: false,
       error: `Failed to trigger delivery: ${message}`,
