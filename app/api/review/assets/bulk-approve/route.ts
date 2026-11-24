@@ -1,7 +1,8 @@
 // app/api/review/assets/bulk-approve/route.ts
 // POST: Set Asset Approved (Client) = true on selected assets. Optionally sets Approved At
 // from client so the timestamp reflects when the user clicked.
-// After Airtable updates, each approved row triggers `partner.delivery.requested` (Inngest).
+// After Airtable updates, each approved row is copied into the partner destination
+// in this request. Inngest was accepting the event and never starting a run.
 
 import { NextRequest, NextResponse } from 'next/server';
 import { resolveReviewProject } from '@/lib/review/resolveProject';
@@ -14,6 +15,9 @@ import {
 import { triggerPartnerDeliveryForCras } from '@/lib/delivery/triggerPartnerDeliveryForCras';
 
 export const dynamic = 'force-dynamic';
+export const maxDuration = 300;
+
+const DELIVERY_CONCURRENCY = 4;
 
 const NO_STORE = { 'Cache-Control': 'no-store, max-age=0' } as const;
 
@@ -111,32 +115,49 @@ export async function POST(req: NextRequest) {
     return NextResponse.json(payload, { status: 500, headers: NO_STORE });
   }
 
-  await Promise.allSettled(
-    toUpdate.map((crasRecordId) =>
-      triggerPartnerDeliveryForCras({
+  const deliveryResults: Array<{ crasRecordId: string; ok: boolean; error?: string }> = [];
+  const queue = [...toUpdate];
+  const workers = Array.from({ length: Math.min(DELIVERY_CONCURRENCY, queue.length) }, async () => {
+    while (queue.length > 0) {
+      const crasRecordId = queue.shift();
+      if (!crasRecordId) return;
+      const dr = await triggerPartnerDeliveryForCras({
         crasRecordId,
         deliveryBatchId,
         triggeredBy: 'review-assets-bulk-approve',
-      }).then((dr) => {
-        if (!dr.ok) {
-          console.warn(
-            '[bulk-approve] Partner delivery Inngest trigger failed (non-blocking):',
-            crasRecordId,
-            dr.error,
-          );
-        }
-      }),
-    ),
-  );
+        execute: true,
+      });
+      if (!dr.ok) {
+        console.error('[bulk-approve] Partner delivery failed:', crasRecordId, dr.error);
+        deliveryResults.push({ crasRecordId, ok: false, error: dr.error });
+      } else {
+        deliveryResults.push({ crasRecordId, ok: true });
+      }
+    }
+  });
+  if (workers.length > 0) await Promise.all(workers);
+
+  const deliveryFailed = deliveryResults.filter((row) => !row.ok);
 
   console.log(`[bulk-approve] Bulk approval complete.`, {
     approved: result.updated,
     alreadyApproved,
+    delivered: deliveryResults.length - deliveryFailed.length,
+    deliveryFailed: deliveryFailed.length,
     deliveryBatchId: deliveryBatchId || 'undefined',
   });
 
   return NextResponse.json(
-    { ok: true, approved: result.updated, alreadyApproved },
+    {
+      ok: true,
+      approved: result.updated,
+      alreadyApproved,
+      delivery: {
+        delivered: deliveryResults.length - deliveryFailed.length,
+        failed: deliveryFailed.length,
+        failures: deliveryFailed,
+      },
+    },
     { headers: NO_STORE }
   );
 }

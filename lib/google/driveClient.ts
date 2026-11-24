@@ -8,7 +8,7 @@ import { google } from 'googleapis';
 import type { drive_v3 } from 'googleapis';
 import type { OAuth2Client } from 'google-auth-library';
 import { GoogleAuth } from 'google-auth-library';
-import type { Readable } from 'stream';
+import { Readable } from 'stream';
 
 // ============================================================================
 // Types
@@ -354,6 +354,46 @@ export function sanitizeFolderSegment(segment: string, fallback = 'Uncategorized
   return s.length > 0 ? s : fallback;
 }
 
+const sharedDriveIdByFolder = new Map<string, string | null>();
+
+/**
+ * Shared Drive id for a folder, or null when it lives in My Drive / lookup fails.
+ * Cached so a recursive mirror does not re-fetch the same folder on every page.
+ */
+async function sharedDriveIdForFolder(
+  drive: drive_v3.Drive,
+  folderId: string,
+): Promise<string | null> {
+  if (sharedDriveIdByFolder.has(folderId)) {
+    return sharedDriveIdByFolder.get(folderId) ?? null;
+  }
+  if (typeof drive.files.get !== 'function') return null;
+  try {
+    const res = await drive.files.get({
+      fileId: folderId,
+      fields: 'driveId',
+      supportsAllDrives: true,
+    });
+    const driveId = res.data?.driveId ?? null;
+    sharedDriveIdByFolder.set(folderId, driveId);
+    return driveId;
+  } catch {
+    return null;
+  }
+}
+
+function sharedDriveListScope(
+  driveId: string | null,
+): Pick<drive_v3.Params$Resource$Files$List, 'corpora' | 'driveId'> {
+  if (!driveId) return {};
+  return { corpora: 'drive', driveId };
+}
+
+function driveListStatus(err: unknown): number | undefined {
+  const e = err as { code?: number; response?: { status?: number } };
+  return e?.response?.status ?? e?.code;
+}
+
 /**
  * Find a folder by exact name under a parent (using provided drive client).
  */
@@ -364,15 +404,18 @@ export async function findChildFolderWithDrive(
 ): Promise<DriveFolder | null> {
   try {
     const escapedName = name.replace(/'/g, "\\'");
+    const driveId = await sharedDriveIdForFolder(drive, parentId);
     const response = await drive.files.list({
       q: `'${parentId}' in parents and name = '${escapedName}' and mimeType = 'application/vnd.google-apps.folder' and trashed = false`,
-      fields: 'files(id, name)',
+      fields: 'files(id, name, createdTime)',
       supportsAllDrives: true,
       includeItemsFromAllDrives: true,
+      pageSize: 10,
+      ...sharedDriveListScope(driveId),
     });
     const files = response.data.files ?? [];
     if (files.length === 0) return null;
-    const folder = files[0];
+    const folder = [...files].sort((a, b) => (a.createdTime ?? '').localeCompare(b.createdTime ?? ''))[0];
     return { id: folder.id!, name: folder.name!, url: folderUrl(folder.id!) };
   } catch (error: unknown) {
     const msg = error instanceof Error ? error.message : String(error);
@@ -418,13 +461,29 @@ export async function ensureChildFolderWithDrive(
   parentId: string,
   name: string
 ): Promise<DriveFolder> {
-  // First check if folder already exists
+  // First check if folder already exists. Drive allows duplicate names, so
+  // concurrent deliveries can each create one. Always keep the oldest.
   const existing = await findChildFolderWithDrive(drive, parentId, name);
   if (existing) return existing;
   
   // Try to create - if it fails (e.g., duplicate name from concurrent creation), retry lookup
   try {
-    return await createFolderWithDrive(drive, parentId, name);
+    const created = await createFolderWithDrive(drive, parentId, name);
+    const oldest = await findChildFolderWithDrive(drive, parentId, name);
+    if (oldest && oldest.id !== created.id) {
+      try {
+        await drive.files.update({
+          fileId: created.id,
+          requestBody: { trashed: true },
+          supportsAllDrives: true,
+        });
+      } catch (trashError: unknown) {
+        const message = trashError instanceof Error ? trashError.message : String(trashError);
+        console.warn(`[Drive] Could not trash duplicate folder "${name}" (${created.id}): ${message}`);
+      }
+      return oldest;
+    }
+    return created;
   } catch (createError: any) {
     // If creation failed, check again - another process may have created it
     // Common error codes: 409 (conflict), or errors mentioning duplicate/existing
@@ -992,6 +1051,44 @@ async function runPreflightLog(
  * @param options - Optional auth and requestId (requestId + DELIVERY_DRIVE_DEBUG enable preflight log)
  * @returns Created copy with id, name, and view URL
  */
+/**
+ * Upload bytes into a Drive folder. Reuses an existing file with the same name.
+ * Used for HTML5 sizes, which live inside a package zip and have no Drive file id.
+ */
+export async function uploadFileToFolder(
+  drive: drive_v3.Drive,
+  destinationFolderId: string,
+  name: string,
+  body: Buffer,
+  mimeType = 'application/zip',
+): Promise<{ id: string; name: string; url: string }> {
+  const escapedName = name.replace(/'/g, "\\'");
+  const parent = destinationFolderId.replace(/'/g, "\\'");
+  const existingRes = await drive.files.list({
+    q: `'${parent}' in parents and name = '${escapedName}' and mimeType != '${FOLDER_MIMETYPE}' and trashed = false`,
+    fields: 'files(id, name, webViewLink)',
+    supportsAllDrives: true,
+    includeItemsFromAllDrives: true,
+    pageSize: 1,
+  });
+  const existing = existingRes.data.files?.[0];
+  if (existing?.id) {
+    const url = existing.webViewLink?.trim() || documentUrl(existing.id, undefined);
+    return { id: existing.id, name: existing.name ?? name, url };
+  }
+
+  const created = await drive.files.create({
+    requestBody: { name, parents: [destinationFolderId], mimeType },
+    media: { mimeType, body: Readable.from(body) },
+    fields: 'id, name, webViewLink',
+    supportsAllDrives: true,
+  });
+  const id = created.data.id;
+  if (!id) throw new Error(`Upload created no file id for ${name}`);
+  const url = created.data.webViewLink?.trim() || documentUrl(id, undefined);
+  return { id, name: created.data.name ?? name, url };
+}
+
 export async function copyFileToFolder(
   sourceFileId: string,
   destinationFolderId: string,
@@ -1102,23 +1199,57 @@ export interface CopyDriveFolderTreeResult {
   failures: Array<{ id: string; name?: string; reason: string }>;
 }
 
-/** List all children of a folder (paginated). supportsAllDrives and includeItemsFromAllDrives. */
+/**
+ * List all children of a folder (paginated).
+ *
+ * Shared Drive folders must be queried with corpora=drive and that folder's
+ * driveId. The default corpora=user listing omits files the service account
+ * did not create — typically Google Docs and other files dropped in by people —
+ * so a mirror copies some files and silently skips the rest.
+ * orderBy=name keeps page tokens stable; without it, pages past the first can
+ * drop files. shortcutDetails subfields are requested explicitly so Docs stored
+ * as shortcuts include targetId (a bare shortcutDetails mask often does not).
+ */
 export async function listFolderChildren(
   drive: drive_v3.Drive,
   parentId: string
 ): Promise<drive_v3.Schema$File[]> {
   const files: drive_v3.Schema$File[] = [];
   let pageToken: string | undefined;
+  const driveId = await sharedDriveIdForFolder(drive, parentId);
+  const q = `'${parentId.replace(/'/g, "\\'")}' in parents and trashed = false`;
+  const fields =
+    'nextPageToken, files(id, name, mimeType, driveId, createdTime, shortcutDetails(targetId, targetMimeType, targetResourceKey))';
   do {
     const listParams: drive_v3.Params$Resource$Files$List = {
-      q: `'${parentId.replace(/'/g, "\\'")}' in parents and trashed = false`,
-      fields: 'nextPageToken, files(id, name, mimeType, shortcutDetails)',
+      q,
+      fields,
       supportsAllDrives: true,
       includeItemsFromAllDrives: true,
-      pageSize: 100,
+      pageSize: 1000,
+      orderBy: 'name',
       pageToken,
+      ...sharedDriveListScope(driveId),
     };
-    const res = await drive.files.list(listParams);
+    let res: { data: drive_v3.Schema$FileList };
+    try {
+      res = await drive.files.list(listParams);
+    } catch (err) {
+      // Some Shared Drive queries reject orderBy or corpora. Fall back once
+      // so a listing quirk cannot fail the whole mirror.
+      if (driveListStatus(err) === 400 && (listParams.orderBy || listParams.corpora)) {
+        res = await drive.files.list({
+          q,
+          fields,
+          supportsAllDrives: true,
+          includeItemsFromAllDrives: true,
+          pageSize: 1000,
+          pageToken,
+        });
+      } else {
+        throw err;
+      }
+    }
     const data: drive_v3.Schema$FileList = res.data;
     const list = data.files ?? [];
     files.push(...list);

@@ -7,6 +7,7 @@
 import {
   copyDriveFolderTree,
   copyFileToFolder,
+  uploadFileToFolder,
   folderUrl,
   getDriveClient,
   getDriveClientWithOAuth,
@@ -39,6 +40,8 @@ import {
   withTimeout,
 } from '@/lib/airtable/reviewAssetDelivery';
 import { resolveReviewProject } from '@/lib/review/resolveProject';
+import { parseHtml5PortalFileId } from '@/lib/review/html5PortalIds';
+import { loadHtml5PackageBuffer, readHtml5InnerZip } from '@/lib/review/html5DeliveryPackage';
 import type { drive_v3 } from 'googleapis';
 import type { OAuth2Client } from 'google-auth-library';
 
@@ -294,15 +297,32 @@ export async function runPartnerDelivery(
   let variantName: string | null = null;
   let sourceName: string | null = null;
   let sourceVariantFolderId: string | null = null; // Store variant folder ID for file-source mode
+  let html5EntryName: string | null = null;
+  let html5Bytes: Buffer | null = null;
+  const html5Portal = parseHtml5PortalFileId(sourceFolderId);
   
   try {
+    const lookupId = html5Portal?.driveFileId ?? sourceFolderId;
     const sourceMeta = await drive.files.get({
-      fileId: sourceFolderId,
+      fileId: lookupId,
       fields: 'id,name,mimeType,parents',
       supportsAllDrives: true,
     });
     sourceMimeType = sourceMeta.data.mimeType ?? null;
     sourceName = sourceMeta.data.name ?? null;
+    if (html5Portal) {
+      const packageBuf = await loadHtml5PackageBuffer(drive, html5Portal.driveFileId);
+      const zip = readHtml5InnerZip(packageBuf, html5Portal.entry);
+      if (!zip) {
+        throw new Error(`HTML5 size ${html5Portal.entry} was not in package ${html5Portal.driveFileId}`);
+      }
+      html5EntryName = html5Portal.entry;
+      html5Bytes = zip;
+      sourceName = html5Portal.entry;
+      sourceMimeType = 'application/zip';
+      isSourceFile = true;
+      resolvedSourceFolderId = html5Portal.driveFileId;
+    }
     
     console.log(`[delivery/partner] ${requestId} Source metadata:`, {
       sourceId: sourceFolderId,
@@ -314,7 +334,7 @@ export async function runPartnerDelivery(
     if (sourceMimeType !== FOLDER_MIMETYPE) {
       // Source is a FILE: variant = file.parent, tactic = variant.parent
       isSourceFile = true;
-      resolvedSourceFolderId = sourceFolderId; // Keep original file ID
+      resolvedSourceFolderId = html5Portal ? html5Portal.driveFileId : sourceFolderId;
       
       // Detect if this is an animated asset (MP4/video)
       const fileNameLower = (sourceName ?? '').toLowerCase();
@@ -505,7 +525,7 @@ export async function runPartnerDelivery(
   // Check SOURCE access (use original sourceFolderId for file, resolvedSourceFolderId for folder)
   try {
     const sourceRes = await drive.files.get({
-      fileId: sourceFolderId, // Use original ID to get file metadata
+      fileId: html5Portal?.driveFileId ?? sourceFolderId,
       fields: 'id,name,mimeType,driveId,parents',
       supportsAllDrives: true,
     });
@@ -691,10 +711,12 @@ export async function runPartnerDelivery(
         reason: 'copying single file',
         sourceType: 'file',
       });
-      const fileResult = await copyFileToFolder(sourceFolderId, effectiveDestinationFolderId, {
-        drive,
-        requestId,
-      });
+      const fileResult = html5EntryName && html5Bytes
+        ? await uploadFileToFolder(drive, effectiveDestinationFolderId, html5EntryName, html5Bytes)
+        : await copyFileToFolder(sourceFolderId, effectiveDestinationFolderId, {
+            drive,
+            requestId,
+          });
       console.log(`[delivery/copy] DONE`, {
         sourceId: sourceFolderId,
         sourceName,

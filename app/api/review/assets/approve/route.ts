@@ -1,8 +1,9 @@
 // app/api/review/assets/approve/route.ts
 // POST: Set Asset Approved (Client) = true for a single asset. Optionally sets Approved At
 // from client so the timestamp reflects when the user clicked (avoids automation timezone skew).
-// After Airtable is updated, triggers `partner.delivery.requested` (Inngest) so partner
-// copy + production assets run — same as POST /api/delivery/partner/approved.
+// After Airtable is updated, copies the asset into the partner destination in this
+// request. The Inngest event was accepted and never started a run, so approval
+// has to perform the copy itself.
 
 import { NextRequest, NextResponse } from 'next/server';
 import { resolveReviewProject } from '@/lib/review/resolveProject';
@@ -11,6 +12,7 @@ import { setSingleAssetApprovedClient } from '@/lib/airtable/reviewAssetStatus';
 import { triggerPartnerDeliveryForCras } from '@/lib/delivery/triggerPartnerDeliveryForCras';
 
 export const dynamic = 'force-dynamic';
+export const maxDuration = 60;
 
 const NO_STORE = { 'Cache-Control': 'no-store, max-age=0' } as const;
 
@@ -100,10 +102,20 @@ export async function POST(req: NextRequest) {
       crasRecordId: result.recordId,
       deliveryBatchId,
       triggeredBy: 'review-assets-approve',
+      execute: true,
     });
     if (!deliveryResult.ok) {
-      console.warn('[approve] Partner delivery Inngest trigger failed (non-blocking):', deliveryResult.error);
+      console.error('[approve] Partner delivery failed:', deliveryResult.error);
     }
+    return NextResponse.json(
+      {
+        ok: true,
+        delivery: deliveryResult.ok
+          ? { ok: true, result: deliveryResult.result ?? 'delivered' }
+          : { ok: false, error: deliveryResult.error },
+      },
+      { headers: NO_STORE },
+    );
   }
 
   return NextResponse.json({ ok: true }, { headers: NO_STORE });

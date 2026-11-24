@@ -66,8 +66,8 @@ export interface TriggerPartnerDeliveryForCrasInput {
   triggeredBy?: string;
   /**
    * Copy the asset in this request and return the Drive result.
-   * POST /api/delivery/partner/approved sets this. Review-portal callers
-   * leave it unset and only enqueue the Inngest event.
+   * The approved webhook and the review-portal approve routes set this.
+   * Callers that leave it unset only enqueue the Inngest event.
    */
   execute?: boolean;
 }
